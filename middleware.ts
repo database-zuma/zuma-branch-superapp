@@ -1,26 +1,9 @@
-import { auth } from '@/auth';
-import { NextResponse } from 'next/server';
+import NextAuth from 'next-auth';
+import authConfig from '@/auth.config';
 
-export default auth((req) => {
-  const isLoggedIn = !!req.auth;
-  const { pathname } = req.nextUrl;
-
-  // Allow auth API routes and login page
-  if (pathname.startsWith('/api/auth') || pathname.startsWith('/login')) {
-    // Redirect logged-in users away from login page
-    if (isLoggedIn && pathname.startsWith('/login')) {
-      return NextResponse.redirect(new URL('/', req.nextUrl.origin));
-    }
-    return NextResponse.next();
-  }
-
-  // Protect everything else
-  if (!isLoggedIn) {
-    return NextResponse.redirect(new URL('/login', req.nextUrl.origin));
-  }
-
-  return NextResponse.next();
-});
+// Uses edge-safe auth.config.ts (no pg/crypto imports).
+// Full auth with Credentials provider is in auth.ts (Node.js runtime only).
+export const { auth: middleware } = NextAuth(authConfig);
 
 export const config = {
   matcher: [
