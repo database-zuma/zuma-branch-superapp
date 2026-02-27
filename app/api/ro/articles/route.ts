@@ -1,13 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { supabase } from '@/lib/supabase';
+import { auth } from '@/auth';
+import { pool, SCHEMA } from '@/lib/db';
 
 export async function PATCH(request: Request) {
   try {
-    const authClient = await createClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -32,19 +30,13 @@ export async function PATCH(request: Request) {
 
     const boxesRequested = (dddBoxes || 0) + (ljbbBoxes || 0);
 
-    const { data, error } = await supabase
-      .from('ro_process')
-      .update({ 
-        boxes_allocated_ddd: dddBoxes || 0,
-        boxes_allocated_ljbb: ljbbBoxes || 0,
-        boxes_requested: boxesRequested,
-        updated_at: new Date().toISOString() 
-      })
-      .eq('ro_id', roId)
-      .eq('article_code', articleCode)
-      .select();
-
-    if (error) throw error;
+    const { rows: data } = await pool.query(
+      `UPDATE ${SCHEMA}.ro_process
+       SET boxes_allocated_ddd = $1, boxes_allocated_ljbb = $2, boxes_requested = $3, updated_at = $4
+       WHERE ro_id = $5 AND article_code = $6
+       RETURNING *`,
+      [dddBoxes || 0, ljbbBoxes || 0, boxesRequested, new Date().toISOString(), roId, articleCode]
+    );
 
     if (!data || data.length === 0) {
       return NextResponse.json(
@@ -63,10 +55,11 @@ export async function PATCH(request: Request) {
         boxesRequested
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error updating article quantities:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: message },
       { status: 500 }
     );
   }

@@ -1,13 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { supabase } from '@/lib/supabase';
+import { auth } from '@/auth';
+import { pool, SCHEMA } from '@/lib/db';
 
 export async function GET(request: Request) {
   try {
-    const authClient = await createClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -20,34 +18,37 @@ export async function GET(request: Request) {
 
     console.log('API received roId:', roId);
 
-    let query = supabase
-      .from('ro_process')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    let paramIndex = 1;
 
     if (roId) {
-      query = query.eq('ro_id', roId);
+      conditions.push(`ro_id = $${paramIndex++}`);
+      params.push(roId);
       console.log('Filtering by ro_id:', roId);
     }
 
     if (status && status !== 'ALL') {
-      query = query.eq('status', status);
+      conditions.push(`status = $${paramIndex++}`);
+      params.push(status);
     }
 
-    const { data, error } = await query;
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows: data } = await pool.query(
+      `SELECT * FROM ${SCHEMA}.ro_process ${whereClause} ORDER BY created_at DESC`,
+      params
+    );
 
     console.log('Query returned rows:', data?.length || 0);
 
-    if (error) throw error;
-
     // Group by ro_id to create RO items
     const roMap = new Map();
-    (data || []).forEach((row: any) => {
+    (data || []).forEach((row: Record<string, unknown>) => {
       if (!roMap.has(row.ro_id)) {
         roMap.set(row.ro_id, {
           id: row.ro_id,
           store: row.store_name,
-          createdAt: new Date(row.created_at).toLocaleDateString('en-GB'),
+          createdAt: new Date(row.created_at as string).toLocaleDateString('en-GB'),
           currentStatus: row.status,
           dnpbNumberDDD: row.dnpb_number_ddd || null,
           dnpbNumberLJBB: row.dnpb_number_ljbb || null,
@@ -60,15 +61,15 @@ export async function GET(request: Request) {
       }
       const ro = roMap.get(row.ro_id);
       ro.totalArticles += 1;
-      ro.totalBoxes += row.boxes_requested || 0;
-      ro.dddBoxes += row.boxes_allocated_ddd || 0;
-      ro.ljbbBoxes += row.boxes_allocated_ljbb || 0;
+      ro.totalBoxes += (row.boxes_requested as number) || 0;
+      ro.dddBoxes += (row.boxes_allocated_ddd as number) || 0;
+      ro.ljbbBoxes += (row.boxes_allocated_ljbb as number) || 0;
       ro.articles.push({
         kodeArtikel: row.article_code,
         namaArtikel: row.article_name || row.article_code,
-        boxesRequested: row.boxes_requested || 0,
-        dddBoxes: row.boxes_allocated_ddd || 0,
-        ljbbBoxes: row.boxes_allocated_ljbb || 0,
+        boxesRequested: (row.boxes_requested as number) || 0,
+        dddBoxes: (row.boxes_allocated_ddd as number) || 0,
+        ljbbBoxes: (row.boxes_allocated_ljbb as number) || 0,
       });
     });
 
@@ -76,8 +77,9 @@ export async function GET(request: Request) {
       success: true,
       data: Array.from(roMap.values()),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error fetching RO process:', error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

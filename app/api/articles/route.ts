@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { auth } from '@/auth';
+import { pool, SCHEMA } from '@/lib/db';
 
 export async function GET(request: Request) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -16,26 +15,24 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('q') || '';
 
-    let stockQuery = supabase.schema('branch_super_app_clawdbot').from('master_mutasi_whs').select('*');
+    let sql: string;
+    let params: unknown[];
 
     if (query) {
       const searchPattern = `%${query}%`;
-      stockQuery = stockQuery.or(
-        `Kode Artikel.ilike.${searchPattern},Nama Artikel.ilike.${searchPattern}`
-      );
+      sql = `SELECT * FROM ${SCHEMA}.master_mutasi_whs
+             WHERE "Kode Artikel" ILIKE $1 OR "Nama Artikel" ILIKE $1
+             ORDER BY "Nama Artikel"
+             LIMIT 500`;
+      params = [searchPattern];
+    } else {
+      sql = `SELECT * FROM ${SCHEMA}.master_mutasi_whs
+             ORDER BY "Nama Artikel"
+             LIMIT 500`;
+      params = [];
     }
 
-    const { data: articles, error: articlesError } = await stockQuery
-      .order('Nama Artikel')
-      .limit(500);
-
-    if (articlesError) {
-      console.error('Error fetching articles:', articlesError);
-      return NextResponse.json(
-        { success: false, error: articlesError.message },
-        { status: 500 }
-      );
-    }
+    const { rows: articles } = await pool.query(sql, params);
 
     if (!articles || articles.length === 0) {
       return NextResponse.json({ success: true, data: [] });
@@ -43,7 +40,7 @@ export async function GET(request: Request) {
 
     // Group by Kode Artikel and aggregate stock
     const articleMap = new Map();
-    (articles || []).forEach((row: any) => {
+    (articles || []).forEach((row: Record<string, unknown>) => {
       const code = row['Kode Artikel'];
       if (!code) return;
       
@@ -69,7 +66,7 @@ export async function GET(request: Request) {
       art.total += Number(row['Stock Akhir Total']) || 0;
     });
 
-    const transformedData = Array.from(articleMap.values()).map((article: any) => ({
+    const transformedData = Array.from(articleMap.values()).map((article: Record<string, unknown>) => ({
       code: article.code,
       name: article.name,
       tipe: article.tipe,
@@ -88,10 +85,11 @@ export async function GET(request: Request) {
       success: true,
       data: transformedData,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error in articles API:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: message },
       { status: 500 }
     );
   }

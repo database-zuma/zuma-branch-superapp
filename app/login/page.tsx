@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { signIn } from 'next-auth/react'
 import { toast } from 'sonner'
 import { Loader2, Lock, Mail } from 'lucide-react'
 
@@ -16,14 +16,14 @@ export default function LoginPage() {
     e.preventDefault()
     setIsLoading(true)
 
-    const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({
+    const result = await signIn('credentials', {
       email,
       password,
+      redirect: false,
     })
 
-    if (error) {
-      toast.error('Login failed', { description: error.message })
+    if (result?.error) {
+      toast.error('Login failed', { description: 'Invalid email or password' })
       setIsLoading(false)
       return
     }

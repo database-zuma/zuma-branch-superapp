@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { auth } from '@/auth';
 import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
 
@@ -22,10 +22,8 @@ function getGoogleCredentials() {
 
 export async function POST(request: Request) {
   try {
-    const authClient = await createClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -35,13 +33,13 @@ export async function POST(request: Request) {
     const credentials = getGoogleCredentials();
     const { roId, articles } = await request.json();
     
-    const auth = new JWT({
+    const jwtAuth = new JWT({
       email: credentials.client_email,
       key: credentials.private_key,
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
 
-    const sheets = google.sheets({ version: 'v4', auth });
+    const sheets = google.sheets({ version: 'v4', auth: jwtAuth });
     
     // Get all data to find rows
     const getResponse = await sheets.spreadsheets.values.get({
@@ -85,11 +83,12 @@ export async function POST(request: Request) {
       updates: updates.length
     });
     
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error updating sheet:', error);
     return NextResponse.json({ 
       success: false, 
-      error: error.message 
+      error: message
     }, { status: 500 });
   }
 }

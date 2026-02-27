@@ -322,10 +322,11 @@ export default function RequestForm() {
         setSubmitError(result.error || 'Failed to submit RO');
         toast.error(result.error || 'Failed to submit RO');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to submit RO';
       console.error('Error submitting RO:', error);
-      setSubmitError(error.message);
-      toast.error(error.message || 'Failed to submit RO');
+      setSubmitError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }

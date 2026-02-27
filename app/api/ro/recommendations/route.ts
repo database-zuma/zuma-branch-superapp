@@ -1,13 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { supabase } from '@/lib/supabase';
+import { auth } from '@/auth';
+import { pool, SCHEMA } from '@/lib/db';
 
 export async function GET(request: Request) {
   try {
-    const authClient = await createClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -24,42 +22,30 @@ export async function GET(request: Request) {
       );
     }
 
-    const { data: recs, error: recsError } = await supabase
-      .from('ro_recommendations')
-      .select('*')
-      .eq('Store Name', storeName)
-      .gt('"Recommendation (box)"', 0)
-      .order('Tier', { ascending: true });
-
-    if (recsError) {
-      console.error('Error fetching recommendations:', recsError);
-      return NextResponse.json(
-        { success: false, error: recsError.message },
-        { status: 500 }
-      );
-    }
+    const { rows: recs } = await pool.query(
+      `SELECT * FROM ${SCHEMA}.ro_recommendations
+       WHERE "Store Name" = $1 AND "Recommendation (box)" > 0
+       ORDER BY "Tier" ASC`,
+      [storeName]
+    );
 
     if (!recs || recs.length === 0) {
       return NextResponse.json({ success: true, data: [] });
     }
 
-    // Fetch stock data from master_mutasi_whs using "Kode Artikel"
-    // Join key: "kode kecil" from ro_recommendations = "Kode Artikel" from master_mutasi_whs
-    const articleCodes = recs.map((r: any) => r['kode kecil']);
-    const { data: stock, error: stockError } = await supabase
-      .from('master_mutasi_whs')
-      .select('*')
-      .in('Kode Artikel', articleCodes);
+    // Fetch stock data from master_mutasi_whs
+    const articleCodes = recs.map((r: Record<string, unknown>) => r['kode kecil']);
+    const { rows: stock } = await pool.query(
+      `SELECT * FROM ${SCHEMA}.master_mutasi_whs
+       WHERE "Kode Artikel" = ANY($1::text[])`,
+      [articleCodes]
+    );
 
-    if (stockError) {
-      console.error('Error fetching stock:', stockError);
-    }
+    const stockMap = new Map((stock || []).map((s: Record<string, unknown>) => [s['Kode Artikel'], s]));
 
-    const stockMap = new Map((stock || []).map((s: any) => [s['Kode Artikel'], s]));
-
-    const transformedData = recs.map((rec: any) => {
-      const stockData = stockMap.get(rec['kode kecil']);
-      const tier = rec['Tier'] || 99;
+    const transformedData = recs.map((rec: Record<string, unknown>) => {
+      const stockData = stockMap.get(rec['kode kecil']) as Record<string, unknown> | undefined;
+      const tier = (rec['Tier'] as number) || 99;
       return {
         article_code: rec['kode kecil'],
         article_name: rec['Article'],
@@ -83,10 +69,11 @@ export async function GET(request: Request) {
       success: true,
       data: transformedData,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error in recommendations API:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: message },
       { status: 500 }
     );
   }

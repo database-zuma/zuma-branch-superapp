@@ -166,12 +166,13 @@ interface DNPBErrorDetailModalProps {
 }
 
 export function DNPBErrorDetailModal({ ro, onClose, onBanding, onConfirmed }: DNPBErrorDetailModalProps) {
-  if (!ro) return null
-
-  const selisihItems = ro.details?.filter((item) => Number(item.selisih) !== 0) || []
   const [showBandingConfirm, setShowBandingConfirm] = useState(false)
   const [showConfirmedConfirm, setShowConfirmedConfirm] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  if (!ro) return null
+
+  const selisihItems = ro.details?.filter((item) => Number(item.selisih) !== 0) || []
 
   const handleBanding = async () => {
     if (!onBanding) return

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { supabase } from '@/lib/supabase';
+import { auth } from '@/auth';
+import { pool, SCHEMA } from '@/lib/db';
 
 const dnpbPattern = /^DNPB\/([A-Z]+)\/WHS\/\d{4}\/[IVX]+\/\d+$/;
 
@@ -14,27 +14,25 @@ const transactionTableMap: Record<string, string> = {
 async function validateDNPB(dnpbNumber: string): Promise<boolean> {
   const match = dnpbNumber.match(dnpbPattern);
   if (!match) return false;
-  
+
   const warehouseCode = match[1];
   const transactionTable = transactionTableMap[warehouseCode];
-  
+
   if (!transactionTable) return false;
-  
-  const { data: txMatch } = await supabase
-    .from(transactionTable)
-    .select('DNPB')
-    .eq('DNPB', dnpbNumber)
-    .limit(1);
-  
-  return !!(txMatch && txMatch.length > 0);
+
+  // Table name comes from our hardcoded map, safe to interpolate
+  const { rows } = await pool.query(
+    `SELECT "DNPB" FROM ${SCHEMA}."${transactionTable}" WHERE "DNPB" = $1 LIMIT 1`,
+    [dnpbNumber]
+  );
+
+  return rows.length > 0;
 }
 
 export async function PATCH(request: Request) {
   try {
-    const authClient = await createClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -73,27 +71,29 @@ export async function PATCH(request: Request) {
       dnpbMatchLJBB = await validateDNPB(dnpbNumberLJBB);
     }
 
-    const updateData: any = {
-      updated_at: new Date().toISOString()
-    };
+    const setClauses: string[] = ['updated_at = $1'];
+    const params: unknown[] = [new Date().toISOString()];
+    let paramIndex = 2;
 
     if (dnpbNumberDDD !== undefined) {
-      updateData.dnpb_number_ddd = dnpbNumberDDD;
-      updateData.dnpb_match_ddd = dnpbMatchDDD;
+      setClauses.push(`dnpb_number_ddd = $${paramIndex++}`);
+      params.push(dnpbNumberDDD);
+      setClauses.push(`dnpb_match_ddd = $${paramIndex++}`);
+      params.push(dnpbMatchDDD);
     }
 
     if (dnpbNumberLJBB !== undefined) {
-      updateData.dnpb_number_ljbb = dnpbNumberLJBB;
-      updateData.dnpb_match_ljbb = dnpbMatchLJBB;
+      setClauses.push(`dnpb_number_ljbb = $${paramIndex++}`);
+      params.push(dnpbNumberLJBB);
+      setClauses.push(`dnpb_match_ljbb = $${paramIndex++}`);
+      params.push(dnpbMatchLJBB);
     }
 
-    const { data, error } = await supabase
-      .from('ro_process')
-      .update(updateData)
-      .eq('ro_id', roId)
-      .select();
-
-    if (error) throw error;
+    params.push(roId);
+    const { rows: data } = await pool.query(
+      `UPDATE ${SCHEMA}.ro_process SET ${setClauses.join(', ')} WHERE ro_id = $${paramIndex} RETURNING *`,
+      params
+    );
 
     if (!data || data.length === 0) {
       return NextResponse.json(
@@ -113,10 +113,11 @@ export async function PATCH(request: Request) {
         updatedRows: data.length
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error updating DNPB number:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: message },
       { status: 500 }
     );
   }
@@ -124,10 +125,8 @@ export async function PATCH(request: Request) {
 
 export async function GET(request: Request) {
   try {
-    const authClient = await createClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -144,14 +143,12 @@ export async function GET(request: Request) {
       );
     }
 
-    const { data, error } = await supabase
-      .from('ro_process')
-      .select('dnpb_number_ddd, dnpb_number_ljbb')
-      .eq('ro_id', roId)
-      .limit(1)
-      .single();
+    const { rows } = await pool.query(
+      `SELECT dnpb_number_ddd, dnpb_number_ljbb FROM ${SCHEMA}.ro_process WHERE ro_id = $1 LIMIT 1`,
+      [roId]
+    );
 
-    if (error && error.code !== 'PGRST116') throw error;
+    const data = rows.length > 0 ? rows[0] : null;
 
     return NextResponse.json({
       success: true,
@@ -161,10 +158,11 @@ export async function GET(request: Request) {
         dnpbNumberLJBB: data?.dnpb_number_ljbb || null
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error fetching DNPB number:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: message },
       { status: 500 }
     );
   }

@@ -1,30 +1,23 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { supabase } from '@/lib/supabase';
+import { auth } from '@/auth';
+import { pool, SCHEMA } from '@/lib/db';
 
 export async function GET() {
   try {
-    const authClient = await createClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const { data: stockData, error: stockError } = await supabase
-      .from('master_mutasi_whs')
-      .select('"Kode Artikel", "Nama Artikel", "Entitas", tipe, gender, series, "Stock Akhir DDD", "Stock Akhir LJBB", "Stock Akhir MBB", "Stock Akhir UBB", "Stock Akhir Total", ro_ongoing_ddd, ro_ongoing_ljbb, ro_ongoing_mbb, ro_ongoing_ubb');
-
-    if (stockError) {
-      console.error('Error fetching dashboard data:', stockError);
-      return NextResponse.json(
-        { success: false, error: 'Failed to fetch dashboard data' },
-        { status: 500 }
-      );
-    }
+    const { rows: stockData } = await pool.query(
+      `SELECT "Kode Artikel", "Nama Artikel", "Entitas", tipe, gender, series,
+              "Stock Akhir DDD", "Stock Akhir LJBB", "Stock Akhir MBB", "Stock Akhir UBB", "Stock Akhir Total",
+              ro_ongoing_ddd, ro_ongoing_ljbb, ro_ongoing_mbb, ro_ongoing_ubb
+       FROM ${SCHEMA}.master_mutasi_whs`
+    );
 
     const processed = processStockData(stockData || []);
 
@@ -32,27 +25,45 @@ export async function GET() {
       success: true,
       data: processed,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error in dashboard API:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: message },
       { status: 500 }
     );
   }
 }
 
-function processStockData(data: any[]) {
-  const articlesMap = new Map();
+interface ArticleStock {
+  code: string;
+  name: string;
+  tipe: string;
+  gender: string;
+  series: string;
+  ddd: number;
+  ljbb: number;
+  mbb: number;
+  ubb: number;
+  total: number;
+  ro_ddd: number;
+  ro_ljbb: number;
+  ro_mbb: number;
+  ro_ubb: number;
+}
+
+function processStockData(data: Record<string, unknown>[]) {
+  const articlesMap = new Map<string, ArticleStock>();
   
   data.forEach((row) => {
-    const code = row['Kode Artikel'];
+    const code = row['Kode Artikel'] as string;
     if (!articlesMap.has(code)) {
       articlesMap.set(code, {
         code,
-        name: row['Nama Artikel'],
-        tipe: row.tipe,
-        gender: row.gender,
-        series: row.series,
+        name: (row['Nama Artikel'] as string) || '',
+        tipe: (row.tipe as string) || '',
+        gender: (row.gender as string) || '',
+        series: (row.series as string) || '',
         ddd: 0,
         ljbb: 0,
         mbb: 0,
@@ -65,7 +76,7 @@ function processStockData(data: any[]) {
       });
     }
     
-    const article = articlesMap.get(code);
+    const article = articlesMap.get(code)!;
     article.ddd += Number(row['Stock Akhir DDD']) || 0;
     article.ljbb += Number(row['Stock Akhir LJBB']) || 0;
     article.mbb += Number(row['Stock Akhir MBB']) || 0;
@@ -86,23 +97,20 @@ function processStockData(data: any[]) {
   const totalUBB = articles.reduce((sum, a) => sum + a.ubb, 0);
   const totalRO = articles.reduce((sum, a) => sum + a.ro_ddd + a.ro_ljbb + a.ro_mbb + a.ro_ubb, 0);
 
-  const byGender = articles.reduce((acc: Record<string, number>, a) => {
+  const byGender: Record<string, number> = {};
+  const bySeries: Record<string, number> = {};
+  const byTipe: Record<string, number> = {};
+
+  articles.forEach((a) => {
     const gender = a.gender || 'Unknown';
-    acc[gender] = (acc[gender] || 0) + a.total;
-    return acc;
-  }, {});
+    byGender[gender] = (byGender[gender] || 0) + a.total;
 
-  const bySeries = articles.reduce((acc: Record<string, number>, a) => {
     const series = a.series || 'Unknown';
-    acc[series] = (acc[series] || 0) + a.total;
-    return acc;
-  }, {});
+    bySeries[series] = (bySeries[series] || 0) + a.total;
 
-  const byTipe = articles.reduce((acc: Record<string, number>, a) => {
     const tipe = a.tipe || 'Unknown';
-    acc[tipe] = (acc[tipe] || 0) + a.total;
-    return acc;
-  }, {});
+    byTipe[tipe] = (byTipe[tipe] || 0) + a.total;
+  });
 
   const lowStock = articles
     .filter(a => a.total > 0 && a.total < 10)

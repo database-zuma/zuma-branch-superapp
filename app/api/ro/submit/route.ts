@@ -1,13 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { supabase, SCHEMA } from '@/lib/supabase';
+import { auth } from '@/auth';
+import { pool, SCHEMA } from '@/lib/db';
 
 export async function POST(request: Request) {
   try {
-    const authClient = await createClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -32,22 +30,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const articleCodes = articles.map((a: any) => a.code);
-    const { data: stockData, error: stockError } = await supabase
-      .from('master_mutasi_whs')
-      .select('"Kode Artikel", "Stock Akhir DDD", "Stock Akhir LJBB", "Stock Akhir Total"')
-      .in('Kode Artikel', articleCodes);
-
-    if (stockError) {
-      console.error('Error fetching stock:', stockError);
-      return NextResponse.json(
-        { success: false, error: 'Failed to validate stock availability' },
-        { status: 500 }
-      );
-    }
+    const articleCodes = articles.map((a: Record<string, unknown>) => a.code);
+    const { rows: stockData } = await pool.query(
+      `SELECT "Kode Artikel", "Stock Akhir DDD", "Stock Akhir LJBB", "Stock Akhir Total"
+       FROM ${SCHEMA}.master_mutasi_whs
+       WHERE "Kode Artikel" = ANY($1::text[])`,
+      [articleCodes]
+    );
 
     const stockMap = new Map(
-      (stockData || []).map((s: any) => [s['Kode Artikel'], {
+      (stockData || []).map((s: Record<string, unknown>) => [s['Kode Artikel'], {
         ddd: Number(s['Stock Akhir DDD']) || 0,
         ljbb: Number(s['Stock Akhir LJBB']) || 0,
         total: Number(s['Stock Akhir Total']) || 0,
@@ -82,51 +74,64 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: roIdResult, error: roIdError } = await supabase
-      .rpc('generate_ro_id');
-    
-    if (roIdError || !roIdResult) {
-      console.error('Error generating RO ID:', roIdError);
+    const { rows: roIdResult } = await pool.query(
+      `SELECT ${SCHEMA}.generate_ro_id() as ro_id`
+    );
+
+    if (!roIdResult || roIdResult.length === 0 || !roIdResult[0].ro_id) {
+      console.error('Error generating RO ID');
       return NextResponse.json(
         { success: false, error: 'Failed to generate RO ID' },
         { status: 500 }
       );
     }
-    
-    const roId = roIdResult as string;
 
-    const insertData = articles.map((article: any) => ({
-      ro_id: roId,
-      article_code: article.code,
-      article_name: article.name,
-      boxes_requested: article.boxes 
-        ? article.boxes // Backward compatibility: old format
-        : (article.boxes_ddd || 0) + (article.boxes_ljbb || 0) + (article.boxes_mbb || 0) + (article.boxes_ubb || 0),
-      boxes_allocated_ddd: article.boxes_ddd || 0,
-      boxes_allocated_ljbb: article.boxes_ljbb || 0,
-      boxes_allocated_mbb: article.boxes_mbb || 0,
-      boxes_allocated_ubb: article.boxes_ubb || 0,
-      status: 'QUEUE',
-      store_name: store_name,
-      notes: notes || null,
-    }));
+    const roId = roIdResult[0].ro_id as string;
 
-    const { data, error } = await supabase
-      .from('ro_process')
-      .insert(insertData)
-      .select('*');
+    // Build bulk INSERT
+    const values: unknown[] = [];
+    const valuePlaceholders: string[] = [];
+    let paramIndex = 1;
 
-    if (error) {
-      console.error('Error inserting RO:', error);
+    for (const article of articles) {
+      const boxesRequested = article.boxes
+        ? article.boxes
+        : (article.boxes_ddd || 0) + (article.boxes_ljbb || 0) + (article.boxes_mbb || 0) + (article.boxes_ubb || 0);
+
+      valuePlaceholders.push(
+        `($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
+      );
+      values.push(
+        roId,
+        article.code,
+        article.name,
+        boxesRequested,
+        article.boxes_ddd || 0,
+        article.boxes_ljbb || 0,
+        article.boxes_mbb || 0,
+        article.boxes_ubb || 0,
+        'QUEUE',
+        store_name,
+        notes || null
+      );
+    }
+
+    const { rows: data } = await pool.query(
+      `INSERT INTO ${SCHEMA}.ro_process
+        (ro_id, article_code, article_name, boxes_requested, boxes_allocated_ddd, boxes_allocated_ljbb, boxes_allocated_mbb, boxes_allocated_ubb, status, store_name, notes)
+       VALUES ${valuePlaceholders.join(', ')}
+       RETURNING *`,
+      values
+    );
+
+    if (!data || data.length === 0) {
       return NextResponse.json(
-        { success: false, error: error.message },
+        { success: false, error: 'Failed to insert RO' },
         { status: 500 }
       );
     }
 
-
-
-    const totalBoxes = articles.reduce((sum: number, a: any) => {
+    const totalBoxes = articles.reduce((sum: number, a: Record<string, number>) => {
       if (a.boxes) return sum + a.boxes;
       return sum + (a.boxes_ddd || 0) + (a.boxes_ljbb || 0) + (a.boxes_mbb || 0) + (a.boxes_ubb || 0);
     }, 0);
@@ -141,10 +146,11 @@ export async function POST(request: Request) {
         status: 'QUEUE',
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error in submit RO API:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: message },
       { status: 500 }
     );
   }

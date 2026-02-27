@@ -1,13 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { supabase } from '@/lib/supabase';
+import { auth } from '@/auth';
+import { pool, SCHEMA } from '@/lib/db';
 
 export async function PATCH(request: Request) {
   try {
-    const authClient = await createClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -46,21 +44,15 @@ export async function PATCH(request: Request) {
     for (const update of updates) {
       const boxesRequested = update.dddBoxes + update.ljbbBoxes;
 
-      const { data, error } = await supabase
-        .from('ro_process')
-        .update({
-          boxes_allocated_ddd: update.dddBoxes,
-          boxes_allocated_ljbb: update.ljbbBoxes,
-          boxes_requested: boxesRequested,
-          updated_at: new Date().toISOString()
-        })
-        .eq('ro_id', roId)
-        .eq('article_code', update.articleCode)
-        .select();
+      const { rows: data, rowCount } = await pool.query(
+        `UPDATE ${SCHEMA}.ro_process
+         SET boxes_allocated_ddd = $1, boxes_allocated_ljbb = $2, boxes_requested = $3, updated_at = $4
+         WHERE ro_id = $5 AND article_code = $6
+         RETURNING *`,
+        [update.dddBoxes, update.ljbbBoxes, boxesRequested, new Date().toISOString(), roId, update.articleCode]
+      );
 
-      if (error) {
-        errors.push({ articleCode: update.articleCode, error: error.message });
-      } else if (!data || data.length === 0) {
+      if (!data || (rowCount ?? 0) === 0) {
         errors.push({ articleCode: update.articleCode, error: 'Article not found' });
       } else {
         results.push({ articleCode: update.articleCode, success: true });
@@ -87,10 +79,11 @@ export async function PATCH(request: Request) {
         updates: results
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error in batch update:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: message },
       { status: 500 }
     );
   }

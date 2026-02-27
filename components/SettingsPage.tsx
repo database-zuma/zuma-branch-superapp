@@ -18,25 +18,25 @@ import {
   Clock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { createClient } from '@/lib/supabase/client';
+import { signOut } from 'next-auth/react';
 import { toast } from 'sonner';
 
 export default function SettingsPage() {
   const router = useRouter();
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [supabaseStatus, setSupabaseStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
+  const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const [lastSalesUpdate, setLastSalesUpdate] = useState<string | null>(null);
   const [notifications, setNotifications] = useState(true);
   const [autoSync, setAutoSync] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  // Check Supabase connection
+  // Check database connection
   useEffect(() => {
     const checkConnection = async () => {
-      setSupabaseStatus('checking');
+      setDbStatus('checking');
       // Simulate connection check
       setTimeout(() => {
-        setSupabaseStatus('connected');
+        setDbStatus('connected');
         setLastSalesUpdate(new Date().toISOString());
       }, 1500);
     };
@@ -60,17 +60,13 @@ export default function SettingsPage() {
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        toast.error('Logout failed', { description: error.message });
-        return;
-      }
+      await signOut({ redirect: false });
       toast.success('Logged out successfully');
       router.push('/login');
       router.refresh();
-    } catch (error: any) {
-      toast.error('Logout failed', { description: error.message });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Logout failed';
+      toast.error('Logout failed', { description: message });
     } finally {
       setIsLoggingOut(false);
     }
@@ -126,36 +122,36 @@ export default function SettingsPage() {
         </div>
         
         <div className="p-4 space-y-4">
-          {/* Supabase Connection */}
+          {/* Database Connection */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className={cn(
                 "w-10 h-10 rounded-full flex items-center justify-center",
-                supabaseStatus === 'connected' ? "bg-green-100" : 
-                supabaseStatus === 'disconnected' ? "bg-red-100" : "bg-yellow-100"
+                dbStatus === 'connected' ? "bg-green-100" : 
+                dbStatus === 'disconnected' ? "bg-red-100" : "bg-yellow-100"
               )}>
-                {supabaseStatus === 'connected' ? (
+                {dbStatus === 'connected' ? (
                   <Wifi className="w-5 h-5 text-green-600" />
-                ) : supabaseStatus === 'disconnected' ? (
+                ) : dbStatus === 'disconnected' ? (
                   <WifiOff className="w-5 h-5 text-red-600" />
                 ) : (
                   <RefreshCw className="w-5 h-5 text-yellow-600 animate-spin" />
                 )}
               </div>
               <div>
-                <p className="font-medium text-gray-900">Supabase</p>
+                <p className="font-medium text-gray-900">Database</p>
                 <p className={cn(
                   "text-xs",
-                  supabaseStatus === 'connected' ? "text-green-600" : 
-                  supabaseStatus === 'disconnected' ? "text-red-600" : "text-yellow-600"
+                  dbStatus === 'connected' ? "text-green-600" : 
+                  dbStatus === 'disconnected' ? "text-red-600" : "text-yellow-600"
                 )}>
-                  {supabaseStatus === 'connected' ? 'Connected' : 
-                   supabaseStatus === 'disconnected' ? 'Disconnected' : 'Checking...'}
+                  {dbStatus === 'connected' ? 'Connected' : 
+                   dbStatus === 'disconnected' ? 'Disconnected' : 'Checking...'}
                 </p>
               </div>
             </div>
             <button 
-              onClick={() => setSupabaseStatus('checking')}
+              onClick={() => setDbStatus('checking')}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <RefreshCw className="w-4 h-4 text-gray-400" />

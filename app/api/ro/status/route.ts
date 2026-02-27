@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { supabase } from '@/lib/supabase';
+import { auth } from '@/auth';
+import { pool, SCHEMA } from '@/lib/db';
 
 const VALID_STATUSES = [
   'QUEUE',
@@ -32,10 +32,8 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
 
 export async function PATCH(request: Request) {
   try {
-    const authClient = await createClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -58,13 +56,10 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const { data: currentData, error: fetchError } = await supabase
-      .from('ro_process')
-      .select('status')
-      .eq('ro_id', roId)
-      .limit(1);
-
-    if (fetchError) throw fetchError;
+    const { rows: currentData } = await pool.query(
+      `SELECT status FROM ${SCHEMA}.ro_process WHERE ro_id = $1 LIMIT 1`,
+      [roId]
+    );
 
     if (!currentData || currentData.length === 0) {
       return NextResponse.json(
@@ -83,13 +78,10 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const { data, error } = await supabase
-      .from('ro_process')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('ro_id', roId)
-      .select();
-
-    if (error) throw error;
+    const { rows: data } = await pool.query(
+      `UPDATE ${SCHEMA}.ro_process SET status = $1, updated_at = $2 WHERE ro_id = $3 RETURNING *`,
+      [status, new Date().toISOString(), roId]
+    );
 
     if (!data || data.length === 0) {
       return NextResponse.json(
@@ -106,10 +98,11 @@ export async function PATCH(request: Request) {
         updatedRows: data.length
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error updating RO status:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: message },
       { status: 500 }
     );
   }

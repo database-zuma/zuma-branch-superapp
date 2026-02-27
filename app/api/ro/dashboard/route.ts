@@ -1,25 +1,20 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { supabase } from '@/lib/supabase';
+import { auth } from '@/auth';
+import { pool, SCHEMA } from '@/lib/db';
 
 export async function GET() {
   try {
-    const authClient = await createClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-
-    if (authError || !user) {
+    const session = await auth();
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const { data, error } = await supabase
-      .from('ro_process')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
+    const { rows: data } = await pool.query(
+      `SELECT * FROM ${SCHEMA}.ro_process ORDER BY created_at DESC`
+    );
 
     const roMap = new Map<string, {
       id: string;
@@ -32,17 +27,17 @@ export async function GET() {
     let totalBoxes = 0;
     let queuedCount = 0;
 
-    (data || []).forEach((row: any) => {
-      const boxes = row.boxes_requested || 0;
+    (data || []).forEach((row: Record<string, unknown>) => {
+      const boxes = (row.boxes_requested as number) || 0;
       totalBoxes += boxes;
 
-      if (!roMap.has(row.ro_id)) {
-        roMap.set(row.ro_id, {
-          id: row.ro_id,
-          store: row.store_name || 'Unknown',
+      if (!roMap.has(row.ro_id as string)) {
+        roMap.set(row.ro_id as string, {
+          id: row.ro_id as string,
+          store: (row.store_name as string) || 'Unknown',
           totalBoxes: 0,
-          status: row.status || 'QUEUE',
-          createdAt: row.created_at,
+          status: (row.status as string) || 'QUEUE',
+          createdAt: row.created_at as string,
         });
 
         if (row.status === 'QUEUE') {
@@ -50,7 +45,7 @@ export async function GET() {
         }
       }
 
-      const ro = roMap.get(row.ro_id)!;
+      const ro = roMap.get(row.ro_id as string)!;
       ro.totalBoxes += boxes;
     });
 
@@ -75,8 +70,9 @@ export async function GET() {
         })),
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error fetching dashboard data:', error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
