@@ -52,10 +52,14 @@ export async function GET(request: Request) {
           currentStatus: row.status,
           dnpbNumberDDD: row.dnpb_number_ddd || null,
           dnpbNumberLJBB: row.dnpb_number_ljbb || null,
+          dnpbNumberMBB: row.dnpb_number_mbb || null,
+          dnpbNumberUBB: row.dnpb_number_ubb || null,
           totalBoxes: 0,
           totalArticles: 0,
           dddBoxes: 0,
           ljbbBoxes: 0,
+          mbbBoxes: 0,
+          ubbBoxes: 0,
           articles: [],
         });
       }
@@ -64,12 +68,16 @@ export async function GET(request: Request) {
       ro.totalBoxes += (row.boxes_requested as number) || 0;
       ro.dddBoxes += (row.boxes_allocated_ddd as number) || 0;
       ro.ljbbBoxes += (row.boxes_allocated_ljbb as number) || 0;
+      ro.mbbBoxes += (row.boxes_allocated_mbb as number) || 0;
+      ro.ubbBoxes += (row.boxes_allocated_ubb as number) || 0;
       ro.articles.push({
         kodeArtikel: row.article_code,
         namaArtikel: row.article_name || row.article_code,
         boxesRequested: (row.boxes_requested as number) || 0,
         dddBoxes: (row.boxes_allocated_ddd as number) || 0,
         ljbbBoxes: (row.boxes_allocated_ljbb as number) || 0,
+        mbbBoxes: (row.boxes_allocated_mbb as number) || 0,
+        ubbBoxes: (row.boxes_allocated_ubb as number) || 0,
       });
     });
 

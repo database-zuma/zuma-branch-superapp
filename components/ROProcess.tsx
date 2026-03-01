@@ -21,6 +21,8 @@ interface ROArticle {
   boxesRequested: number;
   dddBoxes: number;
   ljbbBoxes: number;
+  mbbBoxes: number;
+  ubbBoxes: number;
 }
 
 interface ROItem {
@@ -30,10 +32,14 @@ interface ROItem {
   currentStatus: ROStatus;
   dnpbNumberDDD: string | null;
   dnpbNumberLJBB: string | null;
+  dnpbNumberMBB: string | null;
+  dnpbNumberUBB: string | null;
   totalBoxes: number;
   totalArticles: number;
   dddBoxes: number;
   ljbbBoxes: number;
+  mbbBoxes: number;
+  ubbBoxes: number;
   articles: ROArticle[];
 }
 
@@ -59,7 +65,7 @@ export default function ROProcess() {
   const [isLoading, setIsLoading] = useState(false);
   const [roData, setRoData] = useState<ROItem[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
-  const [dnpbInputs, setDnpbInputs] = useState<{ ddd: string; ljbb: string }>({ ddd: '', ljbb: '' });
+  const [dnpbInputs, setDnpbInputs] = useState<{ ddd: string; ljbb: string; mbb: string; ubb: string }>({ ddd: '', ljbb: '', mbb: '', ubb: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [editedArticles, setEditedArticles] = useState<Record<string, { ddd: number; ljbb: number }>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -72,10 +78,12 @@ export default function ROProcess() {
     if (selectedRO) {
       setDnpbInputs({
         ddd: selectedRO.dnpbNumberDDD || '',
-        ljbb: selectedRO.dnpbNumberLJBB || ''
+        ljbb: selectedRO.dnpbNumberLJBB || '',
+        mbb: selectedRO.dnpbNumberMBB || '',
+        ubb: selectedRO.dnpbNumberUBB || '',
       });
     } else {
-      setDnpbInputs({ ddd: '', ljbb: '' });
+      setDnpbInputs({ ddd: '', ljbb: '', mbb: '', ubb: '' });
     }
   }, [selectedRO?.id]);
 
@@ -250,7 +258,9 @@ export default function ROProcess() {
           onClick={() => {
             const hasUnsavedDDD = selectedRO.dddBoxes > 0 && dnpbInputs.ddd && dnpbInputs.ddd !== selectedRO.dnpbNumberDDD;
             const hasUnsavedLJBB = selectedRO.ljbbBoxes > 0 && dnpbInputs.ljbb && dnpbInputs.ljbb !== selectedRO.dnpbNumberLJBB;
-            if ((hasUnsavedDDD || hasUnsavedLJBB) && !confirm('You have unsaved DNPB. Discard it?')) return;
+            const hasUnsavedMBB = selectedRO.mbbBoxes > 0 && dnpbInputs.mbb && dnpbInputs.mbb !== selectedRO.dnpbNumberMBB;
+            const hasUnsavedUBB = selectedRO.ubbBoxes > 0 && dnpbInputs.ubb && dnpbInputs.ubb !== selectedRO.dnpbNumberUBB;
+            if ((hasUnsavedDDD || hasUnsavedLJBB || hasUnsavedMBB || hasUnsavedUBB) && !confirm('You have unsaved DNPB. Discard it?')) return;
             setSelectedRO(null);
             setViewArticles(false);
           }}
@@ -275,6 +285,12 @@ export default function ROProcess() {
             )}
             {selectedRO.ljbbBoxes > 0 && (
               <span className="px-2 py-1 bg-white/20 rounded text-xs">LJBB: {selectedRO.ljbbBoxes} boxes</span>
+            )}
+            {selectedRO.mbbBoxes > 0 && (
+              <span className="px-2 py-1 bg-white/20 rounded text-xs">MBB: {selectedRO.mbbBoxes} boxes</span>
+            )}
+            {selectedRO.ubbBoxes > 0 && (
+              <span className="px-2 py-1 bg-white/20 rounded text-xs">UBB: {selectedRO.ubbBoxes} boxes</span>
             )}
           </div>
         </div>
@@ -317,6 +333,42 @@ export default function ROProcess() {
                 />
                 {selectedRO.dnpbNumberLJBB && (
                   <p className="mt-1 text-xs text-yellow-600">Current: {selectedRO.dnpbNumberLJBB}</p>
+                )}
+              </div>
+            )}
+
+            {selectedRO.mbbBoxes > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-yellow-700 mb-1">
+                  DNPB MBB
+                </label>
+                <input
+                  type="text"
+                  placeholder="DNPB/MBB/WHS/2026/I/001"
+                  value={dnpbInputs.mbb}
+                  onChange={(e) => setDnpbInputs({ ...dnpbInputs, mbb: e.target.value })}
+                  className="w-full px-4 py-2 text-sm border border-yellow-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white"
+                />
+                {selectedRO.dnpbNumberMBB && (
+                  <p className="mt-1 text-xs text-yellow-600">Current: {selectedRO.dnpbNumberMBB}</p>
+                )}
+              </div>
+            )}
+
+            {selectedRO.ubbBoxes > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-yellow-700 mb-1">
+                  DNPB UBB
+                </label>
+                <input
+                  type="text"
+                  placeholder="DNPB/UBB/WHS/2026/I/001"
+                  value={dnpbInputs.ubb}
+                  onChange={(e) => setDnpbInputs({ ...dnpbInputs, ubb: e.target.value })}
+                  className="w-full px-4 py-2 text-sm border border-yellow-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white"
+                />
+                {selectedRO.dnpbNumberUBB && (
+                  <p className="mt-1 text-xs text-yellow-600">Current: {selectedRO.dnpbNumberUBB}</p>
                 )}
               </div>
             )}
@@ -406,6 +458,8 @@ export default function ROProcess() {
               if (selectedRO.currentStatus === 'DNPB_PROCESS') {
                 const dnpbToSaveDDD = dnpbInputs.ddd || selectedRO.dnpbNumberDDD;
                 const dnpbToSaveLJBB = dnpbInputs.ljbb || selectedRO.dnpbNumberLJBB;
+                const dnpbToSaveMBB = dnpbInputs.mbb || selectedRO.dnpbNumberMBB;
+                const dnpbToSaveUBB = dnpbInputs.ubb || selectedRO.dnpbNumberUBB;
                 
                 if (selectedRO.dddBoxes > 0 && !dnpbToSaveDDD) {
                   toast.warning('DNPB Number for DDD is required before proceeding');
@@ -414,6 +468,16 @@ export default function ROProcess() {
                 
                 if (selectedRO.ljbbBoxes > 0 && !dnpbToSaveLJBB) {
                   toast.warning('DNPB Number for LJBB is required before proceeding');
+                  return;
+                }
+
+                if (selectedRO.mbbBoxes > 0 && !dnpbToSaveMBB) {
+                  toast.warning('DNPB Number for MBB is required before proceeding');
+                  return;
+                }
+
+                if (selectedRO.ubbBoxes > 0 && !dnpbToSaveUBB) {
+                  toast.warning('DNPB Number for UBB is required before proceeding');
                   return;
                 }
                 
@@ -425,7 +489,9 @@ export default function ROProcess() {
                     body: JSON.stringify({ 
                       roId: selectedRO.id, 
                       dnpbNumberDDD: dnpbToSaveDDD,
-                      dnpbNumberLJBB: dnpbToSaveLJBB
+                      dnpbNumberLJBB: dnpbToSaveLJBB,
+                      dnpbNumberMBB: dnpbToSaveMBB,
+                      dnpbNumberUBB: dnpbToSaveUBB,
                     })
                   });
                   const dnpbResult = await dnpbRes.json();
@@ -457,9 +523,11 @@ export default function ROProcess() {
                     ...selectedRO, 
                     currentStatus: nextStatus.id, 
                     dnpbNumberDDD: dnpbInputs.ddd || selectedRO.dnpbNumberDDD,
-                    dnpbNumberLJBB: dnpbInputs.ljbb || selectedRO.dnpbNumberLJBB
+                    dnpbNumberLJBB: dnpbInputs.ljbb || selectedRO.dnpbNumberLJBB,
+                    dnpbNumberMBB: dnpbInputs.mbb || selectedRO.dnpbNumberMBB,
+                    dnpbNumberUBB: dnpbInputs.ubb || selectedRO.dnpbNumberUBB,
                   });
-                  setDnpbInputs({ ddd: '', ljbb: '' });
+                  setDnpbInputs({ ddd: '', ljbb: '', mbb: '', ubb: '' });
                   fetchROData();
                   toast.success(`Status updated to ${nextStatus.label}`);
                 } else {
@@ -589,10 +657,8 @@ export default function ROProcess() {
   const downloadCSV = () => {
     if (!selectedRO) return;
 
-    const dnpbDisplay = [selectedRO.dnpbNumberDDD, selectedRO.dnpbNumberLJBB].filter(Boolean).join(', ') || '-';
-
     const csvRows = [
-      ['RO_ID', 'Store', 'Status', 'Created_Date', 'DNPB_DDD', 'DNPB_LJBB', 'Article_Code', 'Article_Name', 'Box', 'DDD', 'LJBB'],
+      ['RO_ID', 'Store', 'Status', 'Created_Date', 'DNPB_DDD', 'DNPB_LJBB', 'DNPB_MBB', 'DNPB_UBB', 'Article_Code', 'Article_Name', 'Box', 'DDD', 'LJBB', 'MBB', 'UBB'],
       ...selectedRO.articles.map(article => [
         selectedRO.id,
         selectedRO.store,
@@ -600,11 +666,15 @@ export default function ROProcess() {
         selectedRO.createdAt,
         selectedRO.dnpbNumberDDD || '-',
         selectedRO.dnpbNumberLJBB || '-',
+        selectedRO.dnpbNumberMBB || '-',
+        selectedRO.dnpbNumberUBB || '-',
         article.kodeArtikel,
         article.namaArtikel,
-        (article.dddBoxes + article.ljbbBoxes).toString(),
+        (article.dddBoxes + article.ljbbBoxes + article.mbbBoxes + article.ubbBoxes).toString(),
         article.dddBoxes.toString(),
-        article.ljbbBoxes.toString()
+        article.ljbbBoxes.toString(),
+        article.mbbBoxes.toString(),
+        article.ubbBoxes.toString()
       ])
     ];
 
@@ -684,6 +754,8 @@ export default function ROProcess() {
                   <th className="py-3 px-2 font-medium text-center">Box</th>
                   <th className="py-3 px-2 font-medium text-center text-blue-600">DDD</th>
                   <th className="py-3 px-2 font-medium text-center text-purple-600">LJBB</th>
+                  <th className="py-3 px-2 font-medium text-center text-orange-600">MBB</th>
+                  <th className="py-3 px-2 font-medium text-center text-teal-600">UBB</th>
                 </tr>
               </thead>
               <tbody>
@@ -696,7 +768,7 @@ export default function ROProcess() {
                         <p className="font-mono text-xs text-gray-500">{article.kodeArtikel}</p>
                         <p className="text-gray-900 text-xs truncate max-w-[150px]">{article.namaArtikel}</p>
                       </td>
-                      <td className="py-3 px-2 text-center font-medium text-gray-900">{values.ddd + values.ljbb}</td>
+                      <td className="py-3 px-2 text-center font-medium text-gray-900">{values.ddd + values.ljbb + article.mbbBoxes + article.ubbBoxes}</td>
                       <td className="py-2 px-1 text-center">
                         <div className="flex items-center justify-center gap-1">
                           {isEditable ? (
@@ -735,6 +807,12 @@ export default function ROProcess() {
                           )}
                         </div>
                       </td>
+                      <td className="py-2 px-1 text-center">
+                        <span className="w-10 h-6 text-center text-orange-700 font-medium text-xs bg-orange-50 border border-orange-200 rounded flex items-center justify-center mx-auto">{article.mbbBoxes}</span>
+                      </td>
+                      <td className="py-2 px-1 text-center">
+                        <span className="w-10 h-6 text-center text-teal-700 font-medium text-xs bg-teal-50 border border-teal-200 rounded flex items-center justify-center mx-auto">{article.ubbBoxes}</span>
+                      </td>
                     </tr>
                   );
                 })}
@@ -743,14 +821,16 @@ export default function ROProcess() {
                 {(() => {
                   const totals = selectedRO.articles.reduce((acc, article) => {
                     const values = getArticleValues(article);
-                    return { ddd: acc.ddd + values.ddd, ljbb: acc.ljbb + values.ljbb };
-                  }, { ddd: 0, ljbb: 0 });
+                    return { ddd: acc.ddd + values.ddd, ljbb: acc.ljbb + values.ljbb, mbb: acc.mbb + article.mbbBoxes, ubb: acc.ubb + article.ubbBoxes };
+                  }, { ddd: 0, ljbb: 0, mbb: 0, ubb: 0 });
                   return (
                     <tr className="bg-gray-50 font-medium">
                       <td className="py-3 px-3 text-gray-700">Total</td>
-                      <td className="py-3 px-2 text-center text-gray-900">{totals.ddd + totals.ljbb}</td>
+                      <td className="py-3 px-2 text-center text-gray-900">{totals.ddd + totals.ljbb + totals.mbb + totals.ubb}</td>
                       <td className="py-3 px-2 text-center text-blue-700">{totals.ddd}</td>
                       <td className="py-3 px-2 text-center text-purple-700">{totals.ljbb}</td>
+                      <td className="py-3 px-2 text-center text-orange-700">{totals.mbb}</td>
+                      <td className="py-3 px-2 text-center text-teal-700">{totals.ubb}</td>
                     </tr>
                   );
                 })()}

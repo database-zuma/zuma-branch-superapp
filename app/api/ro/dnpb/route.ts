@@ -180,7 +180,7 @@ export async function GET(request: Request) {
     }
 
     const { rows } = await pool.query(
-      `SELECT dnpb_number_ddd, dnpb_number_ljbb FROM ${SCHEMA}.ro_process WHERE ro_id = $1 LIMIT 1`,
+    `SELECT dnpb_number_ddd, dnpb_number_ljbb, dnpb_number_mbb, dnpb_number_ubb FROM ${SCHEMA}.ro_process WHERE ro_id = $1 LIMIT 1`,
       [roId]
     );
 
@@ -191,7 +191,9 @@ export async function GET(request: Request) {
       data: {
         roId,
         dnpbNumberDDD: data?.dnpb_number_ddd || null,
-        dnpbNumberLJBB: data?.dnpb_number_ljbb || null
+        dnpbNumberLJBB: data?.dnpb_number_ljbb || null,
+        dnpbNumberMBB: data?.dnpb_number_mbb || null,
+        dnpbNumberUBB: data?.dnpb_number_ubb || null,
       }
     });
   } catch (error: unknown) {
