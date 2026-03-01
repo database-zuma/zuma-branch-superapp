@@ -255,5 +255,53 @@ Stock Akhir DDD: 73 - 44 - 0 = 29   <-- Same result, no double-count
 
 ---
 
-*Last Updated: 2026-01-30*
+*Last Updated: 2026-03-01*
 *Migration: 009_update_master_mutasi_whs_ro_ongoing.sql*
+
+---
+
+## 8. Automated Transaksi Pipeline (Accurate API)
+
+### Overview
+The manual GSheet "Rekapan Box" transaksi tables are being replaced with automated
+data from Accurate Online API. Two ETL scripts pull data daily:
+
+| Script | API Endpoint | DB Tables | Captures |
+|--------|-------------|-----------|----------|
+| `pull_accurate_item_transfer.py` | `item-transfer/list.do` + `detail.do` | `raw.accurate_item_transfer_[entity]` | Inter-warehouse transfers (WH→Store, Store→WH) |
+| `pull_accurate_receive_item.py` | `receive-item/list.do` + `detail.do` | `raw.accurate_receive_item_[entity]` | Incoming stock from suppliers (Penerimaan Barang) |
+
+### Union Views
+- `core.item_transfer` — UNION ALL of DDD, MBB, UBB, LJBB item_transfer tables
+- `core.receive_item` — UNION ALL of DDD, MBB, LJBB receive_item tables
+
+### Cron Schedule (VPS 76.13.194.120)
+```
+04:50 WIB — cron_item_transfer_pull.sh (all entities, last 3 days)
+05:10 WIB — cron_receive_item_pull.sh (DDD/MBB/LJBB, last 3 days)
+```
+
+### Data Mapping (GSheet → Accurate)
+- **Transaksi OUT** = `core.item_transfer` WHERE `from_warehouse = 'Warehouse Pusat'` AND `transfer_number LIKE '%DNPB%'`
+- **Transaksi IN** = `core.receive_item` WHERE `warehouse_name = 'Warehouse Pusat'`
+- **Conversion**: pairs / 12 = boxes (all articles = 12 pairs/box via kodemix)
+- **Join key**: `item_code = portal.kodemix.kode_besar` (no status filter)
+- **Article aggregation**: `LEFT(item_code, LENGTH(item_code) - 3)` strips size suffix
+
+### Verification Results (2026-03-01)
+- **DDD outbound**: 98.2% match (4,117 boxes API vs 4,191 GSheet — gap = accessories HANGER/PAPERBAG)
+- **MBB outbound**: Exact match on shared articles (50=50, 20=20, 20=20). GSheet was subset (4/74 articles)
+- **LJBB**: 0 own item_transfers. LJBB stock movements recorded under DDD/MBB entities (cross-entity)
+
+### Key Discovery: LJBB Cross-Entity
+LJBB has no Accurate entity for item transfers. Its outbound stock:
+- Uses DDD DNPB numbers (e.g., DNPB/DDD/WHS/2026/I/023)
+- Uses MBB DNPB numbers (e.g., DNPB/MBB/WHS/2026/I/002)
+- Must be identified by destination store, not by source entity
+
+### Pipeline Status
+- [x] item_transfer ETL (deployed, cron active)
+- [x] receive_item ETL (deployed, cron active)
+- [x] Historical backfill complete (DDD: 2326 rows, MBB: 8777 rows, LJBB: 3 rows)
+- [ ] Replace GSheet CTEs in master_mutasi_whs with automated data
+- [ ] Handle LJBB cross-entity filtering logic
