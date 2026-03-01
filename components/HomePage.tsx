@@ -94,10 +94,12 @@ function filtersToQuery(f: Filters): string {
 }
 
 function defaultFilters(): Filters {
+  // Default to last 60 days to ensure data is available
+  // (iSeller data may lag behind current date)
   const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const from = `${y}-${m}-01`;
+  const past = new Date(now);
+  past.setDate(past.getDate() - 60);
+  const from = past.toISOString().substring(0, 10);
   const to = now.toISOString().substring(0, 10);
   return { from, to, store: '', gender: '', series: '', color: '', tier: '', tipe: '', version: '', excludeNonSku: false, q: '' };
 }
@@ -111,9 +113,9 @@ function ChartCard({ title, children, filterLabel, onClearFilter, actions }: {
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-      <div className="flex items-center justify-between mb-3 border-b border-gray-100 pb-2">
-        <h3 className="text-[10px] font-bold text-gray-700 uppercase tracking-[0.15em]">{title}</h3>
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-2">
+        <h3 className="text-[11px] font-bold text-gray-700 uppercase tracking-[0.12em]">{title}</h3>
         {actions}
       </div>
       {filterLabel && (
@@ -133,7 +135,7 @@ function ChartCard({ title, children, filterLabel, onClearFilter, actions }: {
 
 function Spinner() {
   return (
-    <div className="h-52 flex items-center justify-center">
+    <div className="h-56 flex items-center justify-center">
       <div className="w-5 h-5 border-2 border-[#00D084] border-t-transparent rounded-full animate-spin" />
     </div>
   );
@@ -174,7 +176,7 @@ function PieChart({ labels, values, title, activeValue, onSegmentClick }: {
   return (
     <ChartCard title={title} filterLabel={activeIdx >= 0 ? activeValue : undefined}
       onClearFilter={activeIdx >= 0 && onSegmentClick ? () => onSegmentClick(activeValue!) : undefined}>
-      <div className={cn('h-52 flex items-center justify-center', onSegmentClick && 'cursor-pointer')}>
+      <div className={cn('h-56 flex items-center justify-center', onSegmentClick && 'cursor-pointer')}>
         <div className="h-full w-full max-w-[300px]"><Pie data={chartData} options={options} /></div>
       </div>
     </ChartCard>
@@ -211,7 +213,7 @@ function BarChart({ labels, values, title, horizontal, activeValue, onSegmentCli
   return (
     <ChartCard title={title} filterLabel={activeIdx >= 0 ? activeValue : undefined}
       onClearFilter={activeIdx >= 0 && onSegmentClick ? () => onSegmentClick(activeValue!) : undefined}>
-      <div className={cn('h-52', onSegmentClick && 'cursor-pointer')}>
+      <div className={cn('h-56', onSegmentClick && 'cursor-pointer')}>
         <Bar data={chartData} options={options} />
       </div>
     </ChartCard>
@@ -279,16 +281,16 @@ function FilterBar({ filters, options, onChange }: {
   onChange: (updates: Partial<Filters>) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const inputClass = 'border border-gray-200 rounded-lg text-xs px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#00D084] focus:border-[#00D084]';
-  const selectClass = `${inputClass} min-w-[90px]`;
+  const inputClass = 'border border-gray-200 rounded-lg text-xs px-3 py-2 bg-white focus:outline-none focus:ring-1 focus:ring-[#00D084] focus:border-[#00D084]';
+  const selectClass = `${inputClass} min-w-[100px]`;
 
   const activeCount = [filters.store, filters.gender, filters.series, filters.color, filters.tier, filters.tipe, filters.version]
     .filter(Boolean).length + (filters.excludeNonSku ? 1 : 0);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3 space-y-2">
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
       {/* Row 1: date + search + toggle */}
-      <div className="flex flex-wrap gap-2 items-center">
+      <div className="flex flex-wrap gap-3 items-center">
         <input type="date" value={filters.from} onChange={e => onChange({ from: e.target.value })}
           className={inputClass} />
         <span className="text-gray-300 text-xs">–</span>
@@ -314,7 +316,7 @@ function FilterBar({ filters, options, onChange }: {
 
       {/* Row 2: advanced filters */}
       {showAll && (
-        <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-100">
+        <div className="flex flex-wrap gap-3 pt-2 border-t border-gray-100">
           <select value={filters.store} onChange={e => onChange({ store: e.target.value })} className={selectClass}>
             <option value="">All Stores</option>
             {options.stores.map(s => <option key={s} value={s}>{s}</option>)}
@@ -414,17 +416,17 @@ export default function HomePage() {
   const activeTier   = filters.tier ? `T${filters.tier}` : undefined;
 
   return (
-    <div className="space-y-3 pb-24">
+    <div className="space-y-5 pb-24">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-[#0D3B2E]">iSeller Sales</h2>
-          <p className="text-xs text-gray-400">Jatim Branch · {data?.lastUpdate ?? '—'}</p>
+          <h2 className="text-xl font-semibold text-[#0D3B2E]">iSeller Sales</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Jatim Branch · {data?.lastUpdate ?? '—'}</p>
         </div>
         {data && (
           <div className="text-right">
             <p className="text-xs text-gray-400">Total Revenue</p>
-            <p className="text-sm font-bold text-[#0D3B2E]">{fmtRp(data.kpis.revenue)}</p>
+            <p className="text-base font-bold text-[#0D3B2E]">{fmtRp(data.kpis.revenue)}</p>
           </div>
         )}
       </div>
@@ -435,17 +437,17 @@ export default function HomePage() {
       {/* Charts: Row 1 — Pie charts */}
       {loading ? (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {[1,2,3].map(k => <div key={k} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4"><Spinner /></div>)}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {[1,2,3].map(k => <div key={k} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5"><Spinner /></div>)}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {[4,5,6].map(k => <div key={k} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4"><Spinner /></div>)}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {[4,5,6].map(k => <div key={k} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5"><Spinner /></div>)}
           </div>
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4"><Spinner /></div>
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5"><Spinner /></div>
         </>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <PieChart title="Qty by Tipe" labels={(data?.byTipe ?? []).filter(d => d.tipe).map(d => d.tipe)}
               values={(data?.byTipe ?? []).filter(d => d.tipe).map(d => d.pairs)}
               activeValue={activeTipe}
@@ -461,7 +463,7 @@ export default function HomePage() {
           </div>
 
           {/* Row 2 — Bar charts */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <BarChart title="Qty by Size"
               labels={(data?.bySize ?? []).filter(d => d.size).map(d => d.size)}
               values={(data?.bySize ?? []).filter(d => d.size).map(d => d.pairs)} />

@@ -4,11 +4,10 @@ import { pool } from '@/lib/db';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-// WH Stock page = Accurate dashboard, HARDCODED to 3 warehouse stores
+// WH Stock page = Stock dashboard (core.dashboard_cache)
+// HARDCODED to 3 warehouse gudangs: Warehouse Pusat, Warehouse Pusat Protol, Warehouse Pusat Reject
 
-const WH_STORES = ['Warehouse Pusat', 'Warehouse Pusat Protol', 'Warehouse Pusat Reject'];
-const WH_COND = `d.toko IN ('Warehouse Pusat', 'Warehouse Pusat Protol', 'Warehouse Pusat Reject')`;
-const WH_TXN_COND = `t.toko IN ('Warehouse Pusat', 'Warehouse Pusat Protol', 'Warehouse Pusat Reject')`;
+const WH_GUDANGS = ['Warehouse Pusat', 'Warehouse Pusat Protol', 'Warehouse Pusat Reject'];
 
 function parseMulti(sp: URLSearchParams, key: string): string[] {
   const val = sp.get(key);
@@ -16,348 +15,155 @@ function parseMulti(sp: URLSearchParams, key: string): string[] {
   return val.split(',').map((v) => v.trim()).filter(Boolean);
 }
 
-function buildMvFilters(
-  sp: URLSearchParams,
-  vals: unknown[],
-  startIdx: number,
-  prefix = 'd'
-): { conds: string[]; nextIdx: number } {
+function buildWhere(sp: URLSearchParams): { clause: string; values: unknown[] } {
   const conds: string[] = [];
-  let i = startIdx;
-  const p = `${prefix}.`;
+  const vals: unknown[] = [];
+  let i = 1;
 
-  // Hardcoded WH filter — always applied first (store param is excluded from user filters)
-  conds.push(WH_COND);
+  // Exclude non-product items
+  conds.push("kode_besar !~ '^(gwp|hanger|paperbag|shopbag)'");
 
-  const from = sp.get('from');
-  const to = sp.get('to');
-  if (from) { conds.push(`${p}sale_date >= $${i++}`); vals.push(from); }
-  if (to)   { conds.push(`${p}sale_date <= $${i++}`); vals.push(to); }
+  // Hardcoded WH gudang filter
+  conds.push(`nama_gudang IN ('${WH_GUDANGS.join("','")}')`);
 
-  for (const [param, col] of [
-    ['branch',   'branch'],
-    ['channel',  'store_category'],
-    ['series',   'series'],
-    ['gender',   'gender'],
-    ['tier',     'tier'],
-    ['color',    'color'],
-    ['tipe',     'tipe'],
-    ['version',  'version'],
-    ['entity',   'source_entity'],
-    ['customer', 'customer'],
-  ] as [string, string][]) {
-    const fv = parseMulti(sp, param);
-    if (!fv.length) continue;
-    const phs = fv.map(() => `$${i++}`).join(', ');
-    conds.push(`${p}${col} IN (${phs})`);
-    vals.push(...fv);
-  }
+  const addFilter = (col: string, values: string[]) => {
+    if (values.length === 0) return;
+    if (values.length === 1) {
+      conds.push(`${col} = $${i++}`);
+      vals.push(values[0]);
+    } else {
+      const phs = values.map(() => `$${i++}`).join(', ');
+      conds.push(`${col} IN (${phs})`);
+      vals.push(...values);
+    }
+  };
 
-  if (sp.get('excludeNonSku') === '1') {
-    conds.push(`${p}is_non_sku = FALSE`);
-  }
+  addFilter('gender_group', parseMulti(sp, 'gender'));
+  addFilter('series',       parseMulti(sp, 'series'));
+  addFilter('group_warna',  parseMulti(sp, 'color'));
+  addFilter('tier',         parseMulti(sp, 'tier'));
+  addFilter('ukuran',       parseMulti(sp, 'size'));
+  addFilter('tipe',         parseMulti(sp, 'tipe'));
+  addFilter('v',            parseMulti(sp, 'v'));
+  addFilter('source_entity', parseMulti(sp, 'entitas'));
 
   const q = sp.get('q');
   if (q) {
-    conds.push(`(${p}kode ILIKE $${i} OR ${p}kode_mix ILIKE $${i} OR ${p}kode_besar ILIKE $${i} OR ${p}article ILIKE $${i})`);
+    conds.push(`(kode_besar ILIKE $${i} OR kode ILIKE $${i})`);
     vals.push(`%${q}%`);
     i++;
   }
 
-  return { conds, nextIdx: i };
-}
-
-function buildTxnFilters(
-  sp: URLSearchParams,
-  vals: unknown[],
-  startIdx: number,
-  prefix = 't'
-): { conds: string[]; nextIdx: number } {
-  const conds: string[] = [];
-  let i = startIdx;
-  const p = `${prefix}.`;
-
-  // Hardcoded WH filter
-  conds.push(WH_TXN_COND);
-
-  const from = sp.get('from');
-  const to = sp.get('to');
-  if (from) { conds.push(`${p}sale_date >= $${i++}`); vals.push(from); }
-  if (to)   { conds.push(`${p}sale_date <= $${i++}`); vals.push(to); }
-
-  const branch = parseMulti(sp, 'branch');
-  if (branch.length) {
-    const phs = branch.map(() => `$${i++}`).join(', ');
-    conds.push(`${p}branch IN (${phs})`);
-    vals.push(...branch);
-  }
-
-  const entity = parseMulti(sp, 'entity');
-  if (entity.length) {
-    const phs = entity.map(() => `$${i++}`).join(', ');
-    conds.push(`${p}source_entity IN (${phs})`);
-    vals.push(...entity);
-  }
-
-  const customer = parseMulti(sp, 'customer');
-  if (customer.length) {
-    const phs = customer.map(() => `$${i++}`).join(', ');
-    conds.push(`${p}customer IN (${phs})`);
-    vals.push(...customer);
-  }
-
-  return { conds, nextIdx: i };
+  return {
+    clause: conds.length ? 'WHERE ' + conds.join(' AND ') : '',
+    values: vals,
+  };
 }
 
 export async function GET(req: NextRequest) {
-  const sp = req.nextUrl.searchParams;
+  const { clause, values } = buildWhere(req.nextUrl.searchParams);
+
+  const sql = `
+    WITH base AS (SELECT * FROM core.dashboard_cache ${clause}),
+    kpis AS (
+      SELECT SUM(pairs)                                              AS total_pairs,
+             COUNT(DISTINCT kode_mix)                              AS unique_articles,
+             SUM(CASE WHEN tier IN ('4','5') THEN pairs ELSE 0 END) AS dead_stock_pairs,
+             SUM(est_rsp)                                           AS est_rsp_value,
+             MAX(snapshot_date)                                     AS snapshot_date
+      FROM base
+    ),
+    by_warehouse AS (
+      SELECT
+        nama_gudang,
+        gender_group,
+        SUM(pairs) AS pairs
+      FROM base
+      GROUP BY nama_gudang, gender_group
+    ),
+    by_tipe AS (
+      SELECT tipe, SUM(pairs) AS pairs
+      FROM base WHERE tipe IS NOT NULL GROUP BY tipe
+    ),
+    by_tier AS (
+      SELECT tier, SUM(pairs) AS pairs, COUNT(DISTINCT kode_mix) AS articles
+      FROM base GROUP BY tier
+    ),
+    by_size AS (
+      SELECT ukuran, SUM(pairs) AS pairs
+      FROM base
+      WHERE ukuran IS NOT NULL AND ukuran != ''
+      GROUP BY ukuran
+      ORDER BY
+        CASE
+          WHEN ukuran ~ '^[0-9]+$'       THEN ukuran::int
+          WHEN ukuran ~ '^[0-9]+/[0-9]+$' THEN split_part(ukuran,'/',1)::int
+          ELSE 999
+        END ASC,
+        ukuran ASC
+    ),
+    by_series AS (
+      SELECT series, SUM(pairs) AS pairs
+      FROM base WHERE series IS NOT NULL
+      GROUP BY series ORDER BY pairs DESC
+    ),
+    top_articles AS (
+      SELECT kode_besar, article, SUM(pairs) AS pairs
+      FROM base
+      GROUP BY kode_besar, article
+      ORDER BY pairs DESC LIMIT 15
+    )
+    SELECT
+      (SELECT row_to_json(k)         FROM kpis k)       AS kpis,
+      (SELECT json_agg(w)            FROM by_warehouse w) AS by_warehouse,
+      (SELECT json_agg(tp)           FROM by_tipe tp)    AS by_tipe,
+      (SELECT json_agg(t)            FROM by_tier t)     AS by_tier,
+      (SELECT json_agg(s ORDER BY
+        CASE
+          WHEN s.ukuran ~ '^[0-9]+$'        THEN s.ukuran::int
+          WHEN s.ukuran ~ '^[0-9]+/[0-9]+$' THEN split_part(s.ukuran,'/',1)::int
+          ELSE 999
+        END ASC, s.ukuran ASC)
+       FROM by_size s)                                   AS by_size,
+      (SELECT json_agg(sr ORDER BY sr.pairs DESC)
+       FROM by_series sr)                                 AS by_series,
+      (SELECT json_agg(ta ORDER BY ta.pairs DESC)
+       FROM top_articles ta)                              AS top_articles
+  `;
 
   try {
-    const vals: unknown[] = [];
-    const { conds } = buildMvFilters(sp, vals, 1, 'd');
-    const where = `WHERE ${conds.join(' AND ')}`;
-
-    const txnVals: unknown[] = [];
-    const { conds: txnConds } = buildTxnFilters(sp, txnVals, 1, 't');
-    const txnWhere = `WHERE ${txnConds.join(' AND ')}`;
-
-    // Store-level query (hardcoded to WH stores only)
-    const storeVals: unknown[] = [];
-    const storeD: string[] = [WH_COND];
-    const storeT: string[] = [WH_TXN_COND];
-    let si = 1;
-
-    const from = sp.get('from');
-    const to = sp.get('to');
-    if (from) { storeD.push(`d.sale_date >= $${si}`); storeT.push(`t.sale_date >= $${si}`); storeVals.push(from); si++; }
-    if (to)   { storeD.push(`d.sale_date <= $${si}`); storeT.push(`t.sale_date <= $${si}`); storeVals.push(to);   si++; }
-
-    const branch = parseMulti(sp, 'branch');
-    if (branch.length) {
-      const phs = branch.map(() => `$${si++}`).join(', ');
-      storeD.push(`d.branch IN (${phs})`); storeT.push(`t.branch IN (${phs})`);
-      storeVals.push(...branch);
-    }
-
-    const entity = parseMulti(sp, 'entity');
-    if (entity.length) {
-      const phs = entity.map(() => `$${si++}`).join(', ');
-      storeD.push(`d.source_entity IN (${phs})`); storeT.push(`t.source_entity IN (${phs})`);
-      storeVals.push(...entity);
-    }
-
-    const customer = parseMulti(sp, 'customer');
-    if (customer.length) {
-      const phs = customer.map(() => `$${si++}`).join(', ');
-      storeD.push(`d.customer IN (${phs})`); storeT.push(`t.customer IN (${phs})`);
-      storeVals.push(...customer);
-    }
-
-    for (const [param, col] of [['series','series'],['gender','gender'],['tier','tier'],['color','color'],['tipe','tipe'],['version','version'],['channel','store_category']] as [string,string][]) {
-      const fv = parseMulti(sp, param);
-      if (!fv.length) continue;
-      const phs = fv.map(() => `$${si++}`).join(', ');
-      storeD.push(`d.${col} IN (${phs})`);
-      storeVals.push(...fv);
-    }
-
-    if (sp.get('excludeNonSku') === '1') {
-      storeD.push(`d.is_non_sku = FALSE`);
-    }
-
-    const q = sp.get('q');
-    if (q) {
-      storeD.push(`(d.kode ILIKE $${si} OR d.kode_mix ILIKE $${si} OR d.kode_besar ILIKE $${si} OR d.article ILIKE $${si})`);
-      storeVals.push(`%${q}%`);
-      si++;
-    }
-
-    const storeDWhere = `WHERE ${storeD.join(' AND ')}`;
-    const storeTWhere = `WHERE ${storeT.join(' AND ')}`;
-
-    const [
-      kpiRes, txnRes, lastUpdateRes, tsRes, storeRes,
-      branchRes, seriesRes, genderRes, tierRes,
-      tipeRes, sizeRes, priceRes, rankRes,
-    ] = await Promise.all([
-      pool.query(
-        `SELECT SUM(d.revenue) AS revenue, SUM(d.pairs) AS pairs
-         FROM mart.mv_accurate_summary d ${where}`,
-        vals
-      ),
-      pool.query(
-        `SELECT SUM(t.txn_count) AS transactions FROM mart.mv_accurate_txn_agg t ${txnWhere}`,
-        txnVals
-      ),
-      pool.query(`SELECT MAX(sale_date)::TEXT AS last_date FROM mart.mv_accurate_summary WHERE toko IN ('${WH_STORES.join("','")}')`),
-      pool.query(
-        `SELECT d.sale_date AS period, SUM(d.revenue) AS revenue, SUM(d.pairs) AS pairs
-         FROM mart.mv_accurate_summary d ${where}
-         GROUP BY 1 ORDER BY 1`,
-        vals
-      ),
-      pool.query(
-        `WITH daily_agg AS (
-          SELECT d.toko, SUM(d.pairs) AS pairs, SUM(d.revenue) AS revenue, COALESCE(NULLIF(MAX(d.branch), ''), 'Event') AS branch
-          FROM mart.mv_accurate_summary d ${storeDWhere}
-          GROUP BY d.toko
-        ),
-        txn_agg AS (
-          SELECT t.toko, SUM(t.txn_count) AS transactions
-          FROM mart.mv_accurate_txn_agg t ${storeTWhere}
-          GROUP BY t.toko
-        )
-        SELECT a.toko, a.branch, a.pairs, a.revenue,
-               COALESCE(x.transactions, 0) AS transactions,
-               CASE WHEN COALESCE(x.transactions,0) > 0 THEN a.pairs / x.transactions ELSE 0 END AS atu,
-               CASE WHEN a.pairs > 0 THEN a.revenue / a.pairs ELSE 0 END AS asp,
-               CASE WHEN COALESCE(x.transactions,0) > 0 THEN a.revenue / x.transactions ELSE 0 END AS atv
-        FROM daily_agg a LEFT JOIN txn_agg x ON a.toko = x.toko
-        ORDER BY a.revenue DESC`,
-        storeVals
-      ),
-      pool.query(
-        `SELECT COALESCE(NULLIF(d.branch, ''), 'Event') AS branch, SUM(d.revenue) AS revenue
-         FROM mart.mv_accurate_summary d ${where}
-         GROUP BY d.branch ORDER BY revenue DESC NULLS LAST`,
-        vals
-      ),
-      pool.query(
-        `SELECT d.series, SUM(d.pairs) AS pairs
-         FROM mart.mv_accurate_summary d ${where}
-         GROUP BY d.series ORDER BY pairs DESC NULLS LAST`,
-        vals
-      ),
-      pool.query(
-        `SELECT d.gender, SUM(d.pairs) AS pairs
-         FROM mart.mv_accurate_summary d ${where}
-         GROUP BY d.gender ORDER BY pairs DESC NULLS LAST`,
-        vals
-      ),
-      pool.query(
-        `SELECT d.tier, SUM(d.pairs) AS pairs
-         FROM mart.mv_accurate_summary d ${where}
-         GROUP BY d.tier ORDER BY d.tier ASC NULLS LAST`,
-        vals
-      ),
-      pool.query(
-        `SELECT d.tipe, SUM(d.pairs) AS pairs
-         FROM mart.mv_accurate_summary d ${where}
-         GROUP BY d.tipe ORDER BY pairs DESC NULLS LAST`,
-        vals
-      ),
-      pool.query(
-        `SELECT d.size, SUM(d.pairs) AS pairs
-         FROM mart.mv_accurate_summary d ${where}
-         GROUP BY d.size ORDER BY pairs DESC NULLS LAST`,
-        vals
-      ),
-      pool.query(
-        `SELECT
-           CASE WHEN SUM(d.pairs) > 0 THEN ROUND(SUM(d.revenue) / SUM(d.pairs))
-             ELSE 0
-           END AS price_bucket,
-           SUM(d.pairs) AS pairs
-         FROM mart.mv_accurate_summary d ${where}
-         GROUP BY d.kode
-         HAVING SUM(d.pairs) > 0
-         ORDER BY price_bucket ASC`,
-        vals
-      ),
-      pool.query(
-        `SELECT
-           d.article,
-           d.kode_mix,
-           d.gender,
-           d.series,
-           d.color,
-           SUM(d.pairs) AS pairs,
-           SUM(d.revenue) AS revenue
-         FROM mart.mv_accurate_summary d ${where}
-         GROUP BY d.article, d.kode_mix, d.gender, d.series, d.color
-         ORDER BY revenue DESC NULLS LAST
-         LIMIT 100`,
-        vals
-      ),
-    ]);
-
-    const kpiRow = kpiRes.rows[0] ?? { revenue: 0, pairs: 0 };
-    const txnRow = txnRes.rows[0] ?? { transactions: 0 };
-    const revenue = Number(kpiRow.revenue || 0);
-    const pairs = Number(kpiRow.pairs || 0);
-    const transactions = Number(txnRow.transactions || 0);
-    const lastUpdate = lastUpdateRes.rows[0]?.last_date || null;
-    const kpis = {
-      revenue,
-      pairs,
-      transactions,
-      atu: transactions > 0 ? pairs / transactions : 0,
-      asp: pairs > 0 ? revenue / pairs : 0,
-      atv: transactions > 0 ? revenue / transactions : 0,
-    };
-
-    const timeSeries = tsRes.rows.map((r: Record<string, unknown>) => ({
-      period: String(r.period).substring(0, 10),
-      revenue: Number(r.revenue),
-      pairs: Number(r.pairs),
-    }));
-
-    const stores = storeRes.rows.map((r: Record<string, unknown>) => ({
-      toko: r.toko,
-      branch: r.branch,
-      pairs: Number(r.pairs),
-      revenue: Number(r.revenue),
-      transactions: Number(r.transactions),
-      atu: Number(r.atu),
-      asp: Number(r.asp),
-      atv: Number(r.atv),
-    }));
-
-    const mapNum = (rows: Record<string, unknown>[], ...keys: string[]) =>
-      rows.map((r) => {
-        const obj = { ...r };
-        for (const k of keys) obj[k] = Number(r[k]);
-        return obj;
-      });
-
-    const priceBuckets: { label: string; pairs: number }[] = [];
-    const bucketRanges = [
-      [0, 50000, '0-50K'],
-      [50001, 100000, '50-100K'],
-      [100001, 150000, '100-150K'],
-      [150001, 200000, '150-200K'],
-      [200001, 300000, '200-300K'],
-      [300001, 500000, '300-500K'],
-      [500001, Infinity, '500K+'],
-    ] as [number, number, string][];
-
-    for (const [lo, hi, label] of bucketRanges) {
-      let sum = 0;
-      for (const r of priceRes.rows) {
-        const pb = Number(r.price_bucket);
-        const p = Number(r.pairs);
-        if (pb >= lo && pb <= hi) sum += p;
-      }
-      if (sum > 0) priceBuckets.push({ label, pairs: sum });
-    }
-
+    const { rows } = await pool.query(sql, values as string[]);
+    const r = rows[0];
+    const k = r.kpis as Record<string, unknown>;
     const body = {
-      kpis,
-      lastUpdate,
-      timeSeries,
-      stores,
-      byBranch:     mapNum(branchRes.rows, 'revenue'),
-      bySeries:     mapNum(seriesRes.rows, 'pairs'),
-      byGender:     mapNum(genderRes.rows, 'pairs'),
-      byTier:       mapNum(tierRes.rows, 'pairs'),
-      byTipe:       mapNum(tipeRes.rows, 'pairs'),
-      bySize:       mapNum(sizeRes.rows, 'pairs'),
-      byPrice:      priceBuckets,
-      rankByArticle: mapNum(rankRes.rows, 'pairs', 'revenue'),
+      kpis: {
+        total_pairs:      Number(k?.total_pairs)      || 0,
+        unique_articles:  Number(k?.unique_articles)  || 0,
+        dead_stock_pairs: Number(k?.dead_stock_pairs) || 0,
+        est_rsp_value:    Number(k?.est_rsp_value)    || 0,
+        snapshot_date:    k?.snapshot_date ?? null,
+      },
+      by_warehouse: (r.by_warehouse || []).map((b: Record<string, unknown>) => ({
+        nama_gudang: b.nama_gudang, gender_group: b.gender_group, pairs: Number(b.pairs),
+      })),
+      by_tipe: (r.by_tipe || []).map((tp: Record<string, unknown>) => ({
+        tipe: tp.tipe, pairs: Number(tp.pairs),
+      })),
+      by_tier: (r.by_tier || []).map((t: Record<string, unknown>) => ({
+        tier: t.tier, pairs: Number(t.pairs), articles: Number(t.articles),
+      })),
+      by_size: (r.by_size || []).map((s: Record<string, unknown>) => ({
+        ukuran: s.ukuran, pairs: Number(s.pairs),
+      })),
+      by_series: (r.by_series || []).map((s: Record<string, unknown>) => ({
+        series: s.series, pairs: Number(s.pairs),
+      })),
+      top_articles: (r.top_articles || []).map((a: Record<string, unknown>) => ({
+        kode_besar: a.kode_besar, article: a.article, pairs: Number(a.pairs),
+      })),
     };
-
     return NextResponse.json(body, {
-      headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' },
+      headers: { 'Cache-Control': 'no-store' },
     });
   } catch (e) {
     console.error('wh-stock dashboard error:', e);

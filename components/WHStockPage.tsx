@@ -6,80 +6,72 @@ import {
   CategoryScale,
   LinearScale,
   BarElement,
+  ArcElement,
   Title,
   Tooltip,
   Legend,
 } from 'chart.js';
-import { Bar } from 'react-chartjs-2';
+import { Bar, Doughnut } from 'react-chartjs-2';
 import { cn } from '@/lib/utils';
-import {
-  TrendingUp, Users, ShoppingBag, Package,
-  ArrowUpDown, ChevronLeft, ChevronRight, Search, X, SlidersHorizontal,
-} from 'lucide-react';
+import { Package, Layers, AlertTriangle, DollarSign, Search, X, SlidersHorizontal } from 'lucide-react';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
-// ─── Types ──────────────────────────────────────────────────────────────────
+// ─── Brand colors ──────────────────────────────────────────────────────────
+const ZUMA_GREEN = '#00D084';
+const ZUMA_DARK = '#0D3B2E';
+
+// ─── Types ─────────────────────────────────────────────────────────────────
 interface KpiData {
-  revenue: number; pairs: number; transactions: number;
-  atu: number; asp: number; atv: number;
+  total_pairs: number;
+  unique_articles: number;
+  dead_stock_pairs: number;
+  est_rsp_value: number;
+  snapshot_date: string | null;
 }
 
-interface StoreRow {
-  toko: string; branch: string; pairs: number; revenue: number;
-  transactions: number; atu: number; asp: number; atv: number;
-}
-
-interface TimePoint {
-  period: string; revenue: number; pairs: number;
-}
+interface WarehouseRow { nama_gudang: string; gender_group: string; pairs: number }
+interface TipeRow { tipe: string; pairs: number }
+interface TierRow { tier: string; pairs: number; articles: number }
+interface SizeRow { ukuran: string; pairs: number }
+interface SeriesRow { series: string; pairs: number }
+interface TopArticle { kode_besar: string; article: string; pairs: number }
 
 interface DashboardData {
   kpis: KpiData;
-  lastUpdate: string | null;
-  timeSeries: TimePoint[];
-  stores: StoreRow[];
-  byBranch: { branch: string; revenue: number }[];
-  bySeries: { series: string; pairs: number }[];
-  byGender: { gender: string; pairs: number }[];
-  byTier: { tier: string; pairs: number }[];
-  byTipe: { tipe: string; pairs: number }[];
-  bySize: { size: string; pairs: number }[];
-  byPrice: { label: string; pairs: number }[];
-  rankByArticle: unknown[];
+  by_warehouse: WarehouseRow[];
+  by_tipe: TipeRow[];
+  by_tier: TierRow[];
+  by_size: SizeRow[];
+  by_series: SeriesRow[];
+  top_articles: TopArticle[];
 }
 
 interface FilterOptions {
-  branches: string[];
-  channels: string[];
   genders: string[];
   series: string[];
   colors: string[];
   tiers: string[];
   tipes: string[];
+  sizes: string[];
+  entitas: string[];
   versions: string[];
-  entities: string[];
-  customers: string[];
 }
 
 interface Filters {
-  from: string;
-  to: string;
-  branch: string;
-  entity: string;
-  customer: string;
-  channel: string;
   gender: string;
   series: string;
   color: string;
   tier: string;
   tipe: string;
-  version: string;
-  excludeNonSku: boolean;
+  size: string;
+  entitas: string;
+  v: string;
   q: string;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function fmtNum(n: number) { return Math.round(n).toLocaleString('en-US'); }
 function fmtRp(n: number) {
   if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `Rp ${(n / 1_000_000).toFixed(0)}jt`;
@@ -88,63 +80,47 @@ function fmtRp(n: number) {
 
 function filtersToQuery(f: Filters): string {
   const p = new URLSearchParams();
-  if (f.from) p.set('from', f.from);
-  if (f.to) p.set('to', f.to);
-  if (f.branch) p.set('branch', f.branch);
-  if (f.entity) p.set('entity', f.entity);
-  if (f.customer) p.set('customer', f.customer);
-  if (f.channel) p.set('channel', f.channel);
   if (f.gender) p.set('gender', f.gender);
   if (f.series) p.set('series', f.series);
   if (f.color) p.set('color', f.color);
   if (f.tier) p.set('tier', f.tier);
   if (f.tipe) p.set('tipe', f.tipe);
-  if (f.version) p.set('version', f.version);
-  if (f.excludeNonSku) p.set('excludeNonSku', '1');
+  if (f.size) p.set('size', f.size);
+  if (f.entitas) p.set('entitas', f.entitas);
+  if (f.v) p.set('v', f.v);
   if (f.q) p.set('q', f.q);
   return p.toString();
 }
 
 function defaultFilters(): Filters {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  return {
-    from: `${y}-${m}-01`,
-    to: now.toISOString().substring(0, 10),
-    branch: '', entity: '', customer: '', channel: '',
-    gender: '', series: '', color: '', tier: '', tipe: '', version: '',
-    excludeNonSku: false, q: '',
-  };
+  return { gender: '', series: '', color: '', tier: '', tipe: '', size: '', entitas: '', v: '', q: '' };
 }
 
-// ─── KPI Cards ───────────────────────────────────────────────────────────────
+// ─── KPI Cards (Stock) ────────────────────────────────────────────────────
 function KpiCards({ kpis, loading }: { kpis?: KpiData; loading?: boolean }) {
   const cards = [
-    { label: 'Revenue', value: kpis ? fmtRp(kpis.revenue) : '—', icon: TrendingUp },
-    { label: 'Pairs Sold', value: kpis ? Math.round(kpis.pairs).toLocaleString('en-US') : '—', icon: Package },
-    { label: 'Transactions', value: kpis ? Math.round(kpis.transactions).toLocaleString('en-US') : '—', icon: ShoppingBag },
-    { label: 'ATU', value: kpis ? kpis.atu.toFixed(1) : '—', icon: Users },
-    { label: 'ASP', value: kpis ? fmtRp(kpis.asp) : '—', icon: TrendingUp },
-    { label: 'ATV', value: kpis ? fmtRp(kpis.atv) : '—', icon: TrendingUp },
+    { label: 'Total Pairs', value: kpis ? fmtNum(kpis.total_pairs) : '—', icon: Package, accent: ZUMA_GREEN },
+    { label: 'Unique Articles', value: kpis ? fmtNum(kpis.unique_articles) : '—', icon: Layers, accent: ZUMA_DARK },
+    { label: 'Dead Stock (T4+T5)', value: kpis ? fmtNum(kpis.dead_stock_pairs) : '—', icon: AlertTriangle, accent: '#EF4444' },
+    { label: 'Est. RSP Value', value: kpis ? fmtRp(kpis.est_rsp_value) : '—', icon: DollarSign, accent: ZUMA_GREEN },
   ];
   return (
-    <div className="grid grid-cols-3 gap-2">
-      {cards.map(({ label, value, icon: Icon }) => (
-        <div key={label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {cards.map(({ label, value, icon: Icon, accent }) => (
+        <div key={label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           {loading ? (
-            <div className="space-y-1">
-              <div className="h-3 w-16 bg-gray-100 animate-pulse rounded" />
-              <div className="h-5 w-24 bg-gray-100 animate-pulse rounded" />
+            <div className="space-y-2">
+              <div className="h-3 w-20 bg-gray-100 animate-pulse rounded" />
+              <div className="h-6 w-28 bg-gray-100 animate-pulse rounded" />
             </div>
           ) : (
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p>
-                <p className="text-sm font-bold text-gray-900 mt-0.5">{value}</p>
+                <p className="text-[11px] text-gray-400 uppercase tracking-wider font-medium">{label}</p>
+                <p className="text-lg font-bold text-gray-900 mt-1">{value}</p>
               </div>
-              <div className="p-1.5 bg-[#00D084]/10 rounded-lg">
-                <Icon className="w-3.5 h-3.5 text-[#0D3B2E]" />
+              <div className="p-2 rounded-lg" style={{ backgroundColor: `${accent}15` }}>
+                <Icon className="w-4 h-4" style={{ color: accent }} />
               </div>
             </div>
           )}
@@ -154,232 +130,333 @@ function KpiCards({ kpis, loading }: { kpis?: KpiData; loading?: boolean }) {
   );
 }
 
-// ─── Period Chart ─────────────────────────────────────────────────────────────
-function PeriodChart({ data, loading }: { data?: TimePoint[]; loading?: boolean }) {
-  const labels = data?.map(d => d.period) ?? [];
-  const chartData = {
-    labels,
-    datasets: [
-      { label: 'Revenue (Rp juta)', data: data?.map(d => d.revenue / 1_000_000) ?? [],
-        backgroundColor: '#00D084', borderRadius: 1, yAxisID: 'y' },
-      { label: 'Pairs Sold', data: data?.map(d => d.pairs) ?? [],
-        backgroundColor: '#0D3B2E', borderRadius: 1, yAxisID: 'y1' },
-    ],
-  };
-  const options = {
-    responsive: true, maintainAspectRatio: false,
-    interaction: { mode: 'index' as const, intersect: false },
-    plugins: {
-      legend: { position: 'top' as const, labels: { font: { size: 10 }, usePointStyle: true, pointStyle: 'rect' as const } },
-      tooltip: { callbacks: { label: (ctx: { dataset: { label?: string }; parsed: { y: number | null } }) => {
-        const y = ctx.parsed.y ?? 0;
-        if (ctx.dataset.label?.includes('Revenue')) return `Revenue: Rp ${(y * 1_000_000).toLocaleString('en-US')}`;
-        return `Pairs: ${y.toLocaleString('en-US')}`;
-      }}},
-    },
-    scales: {
-      x: { ticks: { font: { size: 9 } }, grid: { display: false } },
-      y:  { type: 'linear' as const, position: 'left'  as const, ticks: { font: { size: 9 } }, grid: { color: 'rgba(0,0,0,0.04)' } },
-      y1: { type: 'linear' as const, position: 'right' as const, ticks: { font: { size: 9 } }, grid: { drawOnChartArea: false } },
-    },
-  };
+// ─── Chart card wrapper ─────────────────────────────────────────────────────
+function ChartCard({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-      <h3 className="text-[10px] font-bold text-gray-700 uppercase tracking-[0.15em] mb-3">Sales Over Time</h3>
-      <div className="h-52 relative">
-        {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-5 h-5 border-2 border-[#00D084] border-t-transparent rounded-full animate-spin" />
-          </div>
-        ) : (
-          <Bar data={chartData} options={options} />
-        )}
+    <div className={cn('bg-white rounded-xl border border-gray-100 shadow-sm p-5', className)}>
+      <h3 className="text-[11px] font-bold text-gray-700 uppercase tracking-[0.12em] mb-4 pb-2 border-b border-gray-100">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <div className="h-56 flex items-center justify-center">
+      <div className="w-5 h-5 border-2 border-[#00D084] border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
+// ─── Warehouse breakdown (horizontal stacked bar) ──────────────────────────
+function WarehouseChart({ data }: { data: WarehouseRow[] }) {
+  // Group by nama_gudang, then stack by gender_group
+  const gudangs = [...new Set(data.map(d => d.nama_gudang))];
+  const genders = [...new Set(data.map(d => d.gender_group))];
+
+  const genderColors: Record<string, string> = {
+    MEN: ZUMA_DARK,
+    WOMEN: ZUMA_GREEN,
+    UNISEX: '#8C8C8C',
+    KIDS: '#C4C4C4',
+  };
+
+  const datasets = genders.map(g => ({
+    label: g,
+    data: gudangs.map(gu => {
+      const row = data.find(d => d.nama_gudang === gu && d.gender_group === g);
+      return row ? row.pairs : 0;
+    }),
+    backgroundColor: genderColors[g] || '#A0A0A0',
+    borderRadius: 3,
+    maxBarThickness: 28,
+  }));
+
+  return (
+    <div style={{ position: 'relative', height: Math.max(160, gudangs.length * 50) }}>
+      <Bar
+        data={{ labels: gudangs.map(g => g.replace('Warehouse ', 'WH ')), datasets }}
+        options={{
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { font: { size: 10 }, usePointStyle: true, pointStyle: 'rect', padding: 14 } },
+            tooltip: {
+              backgroundColor: '#FFFFFF', borderColor: 'rgba(0,0,0,0.08)', borderWidth: 1,
+              titleColor: '#1A1A18', bodyColor: '#1A1A18', padding: 10,
+              callbacks: { label: (ctx) => `${ctx.dataset.label}: ${fmtNum(Number(ctx.raw))} pairs` },
+            },
+          },
+          scales: {
+            x: {
+              stacked: true,
+              grid: { color: 'rgba(0,0,0,0.04)' },
+              ticks: { callback: (v) => { const n = Number(v); return n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n); }, font: { size: 10 } },
+            },
+            y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } },
+          },
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── Tipe donut ──────────────────────────────────────────────────────────────
+function TipeDonut({ data }: { data: TipeRow[] }) {
+  const total = data.reduce((s, d) => s + d.pairs, 0);
+  const tipeColors: Record<string, string> = { Fashion: ZUMA_GREEN, Jepit: ZUMA_DARK };
+
+  return (
+    <div className="relative flex flex-col items-center" style={{ height: 220 }}>
+      <Doughnut
+        data={{
+          labels: data.map(d => d.tipe),
+          datasets: [{
+            data: data.map(d => d.pairs),
+            backgroundColor: data.map(d => tipeColors[d.tipe] || '#999999'),
+            borderWidth: 2,
+            borderColor: '#ffffff',
+            hoverOffset: 6,
+          }],
+        }}
+        options={{
+          responsive: true, maintainAspectRatio: false,
+          cutout: '68%',
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 10, padding: 14, font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' } },
+            tooltip: {
+              backgroundColor: '#FFFFFF', borderColor: 'rgba(0,0,0,0.08)', borderWidth: 1,
+              titleColor: '#1A1A18', bodyColor: '#1A1A18', padding: 10,
+              callbacks: {
+                label: (ctx) => {
+                  const pct = total > 0 ? ((Number(ctx.raw) / total) * 100).toFixed(1) : '0';
+                  return `${ctx.label}: ${fmtNum(Number(ctx.raw))} (${pct}%)`;
+                },
+              },
+            },
+          },
+        }}
+      />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[65%] text-center pointer-events-none">
+        <p className="text-lg font-bold text-gray-900">{fmtNum(total)}</p>
+        <p className="text-[10px] text-gray-400 uppercase tracking-wider">pairs</p>
       </div>
     </div>
   );
 }
 
-// ─── Store Table ──────────────────────────────────────────────────────────────
-const ROWS_PER_PAGE = 10;
-type SortKey = keyof StoreRow;
-
-function StoreTable({ stores, loading }: { stores?: StoreRow[]; loading?: boolean }) {
-  const [page, setPage] = useState(1);
-  const [sortKey, setSortKey] = useState<SortKey>('revenue');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-
-  useEffect(() => { setPage(1); }, [stores]);
-
-  const sorted = [...(stores ?? [])].sort((a, b) => {
-    const av = a[sortKey], bv = b[sortKey];
-    const cmp = typeof av === 'string' ? av.localeCompare(bv as string) : (av as number) - (bv as number);
-    return sortDir === 'asc' ? cmp : -cmp;
-  });
-
-  const totalPages = Math.ceil(sorted.length / ROWS_PER_PAGE);
-  const current = sorted.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
-
-  const handleSort = (key: SortKey) => {
-    if (key === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortKey(key); setSortDir(key === 'toko' || key === 'branch' ? 'asc' : 'desc'); }
-    setPage(1);
+// ─── Tier bar chart ──────────────────────────────────────────────────────────
+function TierChart({ data }: { data: TierRow[] }) {
+  const TIER_ORDER = ['1', '2', '3', '4', '5', '8'];
+  const TIER_COLORS: Record<string, string> = {
+    '1': '#00D084', '2': '#0D3B2E', '3': '#5D625A', '4': '#A9A69F', '5': '#E3E3DE', '8': '#F5F5F0',
   };
-
-  const thBase = 'px-3 py-2.5 text-[9px] font-bold text-gray-400 uppercase tracking-[0.12em] cursor-pointer select-none hover:text-gray-700 transition-colors';
-  const si = (key: SortKey) => (
-    <span className="ml-1">
-      {key === sortKey
-        ? <ArrowUpDown className={cn('inline w-3 h-3', sortDir === 'asc' ? 'text-[#00D084]' : 'text-[#0D3B2E]')} />
-        : <ArrowUpDown className="inline w-3 h-3 opacity-20" />
-      }
-    </span>
-  );
+  const sorted = TIER_ORDER.map(t => data.find(d => d.tier === t) || { tier: t, pairs: 0, articles: 0 });
+  const labels = sorted.map(d => `T${d.tier}`);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-        <h3 className="text-[10px] font-bold text-gray-700 uppercase tracking-[0.15em]">Warehouse Performance</h3>
-        {!loading && sorted.length > 0 && (
-          <span className="text-[10px] text-gray-400">{sorted.length} stores</span>
-        )}
-      </div>
-      <div className="overflow-x-auto">
+    <div style={{ position: 'relative', height: 220 }}>
+      <Bar
+        data={{
+          labels,
+          datasets: [{
+            data: sorted.map(d => d.pairs),
+            backgroundColor: sorted.map(d => TIER_COLORS[d.tier] || '#999999'),
+            borderRadius: 4,
+            borderSkipped: false,
+            maxBarThickness: 40,
+          }],
+        }}
+        options={{
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#FFFFFF', borderColor: 'rgba(0,0,0,0.08)', borderWidth: 1,
+              titleColor: '#1A1A18', bodyColor: '#1A1A18', padding: 10,
+              callbacks: {
+                afterLabel: (ctx) => { const row = sorted[ctx.dataIndex]; return `${row.articles} articles`; },
+                label: (ctx) => `${fmtNum(Number(ctx.raw))} pairs`,
+              },
+            },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 12, weight: 'bold' as const } } },
+            y: {
+              grid: { color: 'rgba(0,0,0,0.04)' },
+              ticks: { callback: (v) => { const n = Number(v); return n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n); } },
+            },
+          },
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── Series bar chart (horizontal) ──────────────────────────────────────────
+function SeriesChart({ data }: { data: SeriesRow[] }) {
+  const reversed = [...data].reverse();
+  const lastIdx = reversed.length - 1;
+
+  return (
+    <div style={{ position: 'relative', height: Math.max(350, data.length * 28) }}>
+      <Bar
+        data={{
+          labels: reversed.map(d => d.series),
+          datasets: [{
+            data: reversed.map(d => d.pairs),
+            backgroundColor: reversed.map((_, i) => {
+              if (i === lastIdx) return ZUMA_GREEN;
+              const grays = ['#E8E8E5', '#C5C5C0', '#A3A39E', '#818179', '#5F5F5A', '#3D3D39', '#1A1A18'];
+              return grays[Math.min(lastIdx - i - 1, grays.length - 1)];
+            }),
+            borderRadius: 3,
+            borderSkipped: false,
+            maxBarThickness: 24,
+          }],
+        }}
+        options={{
+          indexAxis: 'y',
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#FFFFFF', borderColor: 'rgba(0,0,0,0.08)', borderWidth: 1,
+              titleColor: '#1A1A18', bodyColor: '#1A1A18', padding: 10,
+              callbacks: { label: (ctx) => `${fmtNum(Number(ctx.raw))} pairs` },
+            },
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(0,0,0,0.04)' },
+              ticks: { callback: (v) => { const n = Number(v); return n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n); } },
+            },
+            y: { grid: { display: false }, ticks: { font: { size: 11 } } },
+          },
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── Size bar chart ────────────────────────────────────────────────────────
+function SizeChart({ data }: { data: SizeRow[] }) {
+  const filtered = data.filter(d => d.pairs > 0);
+  return (
+    <div style={{ position: 'relative', height: 240 }}>
+      <Bar
+        data={{
+          labels: filtered.map(d => d.ukuran),
+          datasets: [{
+            data: filtered.map(d => d.pairs),
+            backgroundColor: ZUMA_GREEN,
+            borderRadius: 3,
+            borderSkipped: false,
+            maxBarThickness: 28,
+          }],
+        }}
+        options={{
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#FFFFFF', borderColor: 'rgba(0,0,0,0.08)', borderWidth: 1,
+              titleColor: '#1A1A18', bodyColor: '#1A1A18', padding: 10,
+              callbacks: { label: (ctx) => `${fmtNum(Number(ctx.raw))} pairs` },
+            },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } },
+            y: {
+              grid: { color: 'rgba(0,0,0,0.04)' },
+              ticks: { callback: (v) => { const n = Number(v); return n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n); } },
+            },
+          },
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── Top articles table ────────────────────────────────────────────────────
+function TopArticlesTable({ rows, loading }: { rows: TopArticle[]; loading?: boolean }) {
+  return (
+    <ChartCard title="Top Articles by Pairs">
+      <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
         <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-gray-100 bg-gray-50/50">
-              <th className="text-center px-2 py-2.5 text-[9px] font-bold text-gray-400 uppercase w-8">#</th>
-              <th className={`text-left ${thBase}`} onClick={() => handleSort('toko')}>Store{si('toko')}</th>
-              <th className={`text-right ${thBase}`} onClick={() => handleSort('pairs')}>Qty{si('pairs')}</th>
-              <th className={`text-right ${thBase}`} onClick={() => handleSort('revenue')}>Revenue{si('revenue')}</th>
-              <th className={`text-right ${thBase}`} onClick={() => handleSort('transactions')}>Txn{si('transactions')}</th>
-              <th className={`text-right ${thBase}`} onClick={() => handleSort('atu')}>ATU{si('atu')}</th>
-              <th className={`text-right ${thBase}`} onClick={() => handleSort('asp')}>ASP{si('asp')}</th>
-              <th className={`text-right ${thBase}`} onClick={() => handleSort('atv')}>ATV{si('atv')}</th>
+          <thead className="sticky top-0 bg-white">
+            <tr className="border-b border-gray-100">
+              <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-10">#</th>
+              <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Article</th>
+              <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Kode Besar</th>
+              <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Pairs</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              Array.from({ length: 3 }, (_, i) => (
+              Array.from({ length: 5 }, (_, i) => (
                 <tr key={`sk-${String(i)}`} className="border-b border-gray-50">
-                  {Array.from({ length: 8 }, (_, j) => (
-                    <td key={String(j)} className="px-3 py-2.5">
-                      <div className="h-3 bg-gray-100 animate-pulse rounded w-full" />
-                    </td>
+                  {Array.from({ length: 4 }, (_, j) => (
+                    <td key={String(j)} className="px-4 py-3"><div className="h-3 bg-gray-100 animate-pulse rounded w-full" /></td>
                   ))}
                 </tr>
               ))
-            ) : current.length ? (
-              current.map((s, idx) => {
-                const rank = (page - 1) * ROWS_PER_PAGE + idx + 1;
-                return (
-                  <tr key={s.toko} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                    <td className="px-2 py-2.5 text-center tabular-nums text-gray-400 font-medium">{rank}</td>
-                    <td className="px-3 py-2.5 font-medium text-gray-900 max-w-[180px] truncate">{s.toko}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{Math.round(s.pairs).toLocaleString('en-US')}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{fmtRp(s.revenue)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{s.transactions.toLocaleString('en-US')}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{s.atu.toFixed(1)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{fmtRp(s.asp)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{fmtRp(s.atv)}</td>
-                  </tr>
-                );
-              })
+            ) : rows.length ? (
+              rows.map((r, idx) => (
+                <tr key={r.kode_besar} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3 text-gray-400 tabular-nums font-medium">{idx + 1}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate">{r.article || r.kode_besar}</td>
+                  <td className="px-4 py-3 font-mono text-gray-500 text-[11px]">{r.kode_besar}</td>
+                  <td className="px-4 py-3 text-right tabular-nums font-medium">{fmtNum(r.pairs)}</td>
+                </tr>
+              ))
             ) : (
-              <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400 text-xs">No data</td></tr>
+              <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No data</td></tr>
             )}
           </tbody>
-          {!loading && stores && stores.length > 0 && (() => {
-            const tQty = stores.reduce((s, r) => s + r.pairs, 0);
-            const tRev = stores.reduce((s, r) => s + r.revenue, 0);
-            const tTxn = stores.reduce((s, r) => s + r.transactions, 0);
-            return (
-              <tfoot>
-                <tr className="border-t-2 border-[#00D084]/30 bg-gray-50">
-                  <td className="px-2 py-2.5 text-center text-[9px] font-bold text-gray-700" colSpan={2}>TOTAL</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-xs font-bold text-gray-900">{Math.round(tQty).toLocaleString('en-US')}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-xs font-bold text-gray-900">{fmtRp(tRev)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-xs font-bold text-gray-900">{tTxn.toLocaleString('en-US')}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-xs font-bold text-gray-400">{tTxn > 0 ? (tQty / tTxn).toFixed(1) : '—'}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-xs font-bold text-gray-400">{fmtRp(tQty > 0 ? tRev / tQty : 0)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-xs font-bold text-gray-400">{fmtRp(tTxn > 0 ? tRev / tTxn : 0)}</td>
-                </tr>
-              </tfoot>
-            );
-          })()}
         </table>
       </div>
-      {totalPages > 1 && (
-        <div className="px-4 py-2 border-t border-gray-100 flex items-center justify-between">
-          <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-            className="inline-flex items-center gap-1 px-3 py-1 text-[10px] font-semibold rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-            <ChevronLeft className="w-3 h-3" /> Prev
-          </button>
-          <span className="text-[10px] text-gray-400">Page {page} of {totalPages}</span>
-          <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-            className="inline-flex items-center gap-1 px-3 py-1 text-[10px] font-semibold rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-            Next <ChevronRight className="w-3 h-3" />
-          </button>
-        </div>
-      )}
-    </div>
+    </ChartCard>
   );
 }
 
-// ─── Filter bar ───────────────────────────────────────────────────────────────
+// ─── Filter bar ─────────────────────────────────────────────────────────────
 function FilterBar({ filters, options, onChange }: {
   filters: Filters;
   options: FilterOptions;
   onChange: (updates: Partial<Filters>) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const inputClass = 'border border-gray-200 rounded-lg text-xs px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#00D084] focus:border-[#00D084]';
-  const selectClass = `${inputClass} min-w-[90px]`;
+  const inputClass = 'border border-gray-200 rounded-lg text-xs px-3 py-2 bg-white focus:outline-none focus:ring-1 focus:ring-[#00D084] focus:border-[#00D084]';
+  const selectClass = `${inputClass} min-w-[100px]`;
 
-  const activeCount = [filters.branch, filters.entity, filters.customer, filters.channel, filters.gender, filters.series, filters.color, filters.tier, filters.tipe, filters.version]
-    .filter(Boolean).length + (filters.excludeNonSku ? 1 : 0);
+  const activeCount = [filters.gender, filters.series, filters.color, filters.tier, filters.tipe, filters.size, filters.entitas, filters.v]
+    .filter(Boolean).length;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3 space-y-2">
-      <div className="flex flex-wrap gap-2 items-center">
-        <input type="date" value={filters.from} onChange={e => onChange({ from: e.target.value })} className={inputClass} />
-        <span className="text-gray-300 text-xs">–</span>
-        <input type="date" value={filters.to} onChange={e => onChange({ to: e.target.value })} className={inputClass} />
-        <div className="relative flex-1 min-w-[120px]">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
-          <input placeholder="Search SKU…" value={filters.q} onChange={e => onChange({ q: e.target.value })}
-            className={cn(inputClass, 'pl-7 w-full')} />
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
+      <div className="flex flex-wrap gap-3 items-center">
+        <div className="relative flex-1 min-w-[140px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+          <input placeholder="Search kode besar…" value={filters.q} onChange={e => onChange({ q: e.target.value })}
+            className={cn(inputClass, 'pl-8 w-full')} />
           {filters.q && (
-            <button type="button" onClick={() => onChange({ q: '' })} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-              <X className="w-3 h-3" />
+            <button type="button" onClick={() => onChange({ q: '' })} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              <X className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
         <button type="button" onClick={() => setShowAll(v => !v)}
-          className={cn('flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
+          className={cn('flex items-center gap-1.5 px-4 py-2 rounded-lg border text-xs font-medium transition-colors',
             showAll || activeCount > 0 ? 'bg-[#00D084] text-white border-[#00D084]' : 'bg-white text-gray-600 border-gray-200')}>
-          <SlidersHorizontal className="w-3 h-3" />
+          <SlidersHorizontal className="w-3.5 h-3.5" />
           Filters{activeCount > 0 ? ` (${activeCount})` : ''}
         </button>
       </div>
 
       {showAll && (
-        <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-100">
-          <select value={filters.branch} onChange={e => onChange({ branch: e.target.value })} className={selectClass}>
-            <option value="">All Branches</option>
-            {options.branches.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={filters.entity} onChange={e => onChange({ entity: e.target.value })} className={selectClass}>
-            <option value="">All Entities</option>
-            {options.entities.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={filters.customer} onChange={e => onChange({ customer: e.target.value })} className={selectClass}>
-            <option value="">All Customers</option>
-            {options.customers.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={filters.channel} onChange={e => onChange({ channel: e.target.value })} className={selectClass}>
-            <option value="">All Channels</option>
-            {options.channels.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+        <div className="flex flex-wrap gap-3 pt-2 border-t border-gray-100">
           <select value={filters.gender} onChange={e => onChange({ gender: e.target.value })} className={selectClass}>
             <option value="">All Gender</option>
             {options.genders.map(s => <option key={s} value={s}>{s}</option>)}
@@ -400,19 +477,22 @@ function FilterBar({ filters, options, onChange }: {
             <option value="">All Tipe</option>
             {options.tipes.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <select value={filters.version} onChange={e => onChange({ version: e.target.value })} className={selectClass}>
+          <select value={filters.size} onChange={e => onChange({ size: e.target.value })} className={selectClass}>
+            <option value="">All Sizes</option>
+            {options.sizes.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={filters.entitas} onChange={e => onChange({ entitas: e.target.value })} className={selectClass}>
+            <option value="">All Entitas</option>
+            {options.entitas.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={filters.v} onChange={e => onChange({ v: e.target.value })} className={selectClass}>
             <option value="">All Versions</option>
             {options.versions.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <button type="button" onClick={() => onChange({ excludeNonSku: !filters.excludeNonSku })}
-            className={cn('px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
-              filters.excludeNonSku ? 'bg-[#00D084] text-white border-[#00D084]' : 'bg-white text-gray-600 border-gray-200')}>
-            SKU Only
-          </button>
           {activeCount > 0 && (
-            <button type="button" onClick={() => onChange({ branch: '', entity: '', customer: '', channel: '', gender: '', series: '', color: '', tier: '', tipe: '', version: '', excludeNonSku: false })}
-              className="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 bg-red-50 text-xs font-medium hover:bg-red-100 transition-colors">
-              Clear
+            <button type="button" onClick={() => onChange({ gender: '', series: '', color: '', tier: '', tipe: '', size: '', entitas: '', v: '' })}
+              className="px-4 py-2 rounded-lg border border-red-200 text-red-600 bg-red-50 text-xs font-medium hover:bg-red-100 transition-colors">
+              Clear All
             </button>
           )}
         </div>
@@ -421,13 +501,13 @@ function FilterBar({ filters, options, onChange }: {
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Main component ─────────────────────────────────────────────────────────
 export default function WHStockPage() {
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [options, setOptions] = useState<FilterOptions>({
-    branches: [], channels: [], genders: [], series: [], colors: [], tiers: [], tipes: [], versions: [], entities: [], customers: [],
+    genders: [], series: [], colors: [], tiers: [], tipes: [], sizes: [], entitas: [], versions: [],
   });
   const abortRef = useRef<AbortController | null>(null);
 
@@ -461,18 +541,22 @@ export default function WHStockPage() {
     setFilters(f => ({ ...f, ...updates }));
   }, []);
 
+  const snapshotLabel = data?.kpis.snapshot_date
+    ? new Date(data.kpis.snapshot_date as string).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : '—';
+
   return (
-    <div className="space-y-3 pb-24">
+    <div className="space-y-5 pb-24">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-[#0D3B2E]">Warehouse Stock</h2>
-          <p className="text-xs text-gray-400">WH Pusat · {data?.lastUpdate ?? '—'}</p>
+          <h2 className="text-xl font-semibold text-[#0D3B2E]">Warehouse Stock</h2>
+          <p className="text-xs text-gray-400 mt-0.5">WH Pusat · Snapshot: {snapshotLabel}</p>
         </div>
         {data && (
           <div className="text-right">
-            <p className="text-xs text-gray-400">Total Revenue</p>
-            <p className="text-sm font-bold text-[#0D3B2E]">{fmtRp(data.kpis.revenue)}</p>
+            <p className="text-xs text-gray-400">Est. RSP Value</p>
+            <p className="text-base font-bold text-[#0D3B2E]">{fmtRp(data.kpis.est_rsp_value)}</p>
           </div>
         )}
       </div>
@@ -483,11 +567,48 @@ export default function WHStockPage() {
       {/* KPI Cards */}
       <KpiCards kpis={data?.kpis} loading={loading} />
 
-      {/* Period Chart */}
-      <PeriodChart data={data?.timeSeries} loading={loading} />
+      {loading ? (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5"><Spinner /></div>
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5"><Spinner /></div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5"><Spinner /></div>
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5"><Spinner /></div>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Row 1: Warehouse breakdown + Tipe donut */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <ChartCard title="Stock by Warehouse × Gender">
+              <WarehouseChart data={data?.by_warehouse ?? []} />
+            </ChartCard>
+            <ChartCard title="Stock by Tipe">
+              <TipeDonut data={data?.by_tipe ?? []} />
+            </ChartCard>
+          </div>
 
-      {/* Store Table */}
-      <StoreTable stores={data?.stores} loading={loading} />
+          {/* Row 2: Tier + Size */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <ChartCard title="Stock by Tier">
+              <TierChart data={data?.by_tier ?? []} />
+            </ChartCard>
+            <ChartCard title="Stock by Size">
+              <SizeChart data={data?.by_size ?? []} />
+            </ChartCard>
+          </div>
+
+          {/* Row 3: Series */}
+          <ChartCard title="Stock by Series">
+            <SeriesChart data={data?.by_series ?? []} />
+          </ChartCard>
+
+          {/* Row 4: Top articles */}
+          <TopArticlesTable rows={data?.top_articles ?? []} loading={loading} />
+        </>
+      )}
     </div>
   );
 }

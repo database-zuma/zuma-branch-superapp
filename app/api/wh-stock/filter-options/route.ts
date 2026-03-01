@@ -4,9 +4,10 @@ import { pool } from '@/lib/db';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-// Filter options for WH Stock (Accurate, hardcoded to WH Pusat stores — store param excluded)
+// Filter options for WH Stock — uses core.dashboard_cache
+// Hardcoded to Warehouse Pusat, Warehouse Pusat Protol, Warehouse Pusat Reject
 
-const WH_COND = `d.toko IN ('Warehouse Pusat', 'Warehouse Pusat Protol', 'Warehouse Pusat Reject')`;
+const WH_GUDANGS = ['Warehouse Pusat', 'Warehouse Pusat Protol', 'Warehouse Pusat Reject'];
 
 function parseMulti(sp: URLSearchParams, key: string): string[] {
   const val = sp.get(key);
@@ -14,77 +15,61 @@ function parseMulti(sp: URLSearchParams, key: string): string[] {
   return val.split(',').map((v) => v.trim()).filter(Boolean);
 }
 
-function buildWhereClause(
-  sp: URLSearchParams,
-  skipParam: string,
-  vals: unknown[],
-  startIdx: number
-): { conds: string[]; nextIdx: number } {
-  const conds: string[] = [];
-  let i = startIdx;
+const SIZE_ORDER = "CASE WHEN val ~ '^[0-9]+$' THEN val::int WHEN val ~ '^[0-9]+/[0-9]+$' THEN split_part(val,'/',1)::int ELSE 999 END, val";
 
-  // Hardcoded WH store filter always present (store is never a user param here)
-  conds.push(WH_COND);
-
-  const from = sp.get('from');
-  const to = sp.get('to');
-  if (from) { conds.push(`d.sale_date >= $${i++}`); vals.push(from); }
-  if (to)   { conds.push(`d.sale_date <= $${i++}`); vals.push(to); }
-
-  for (const [param, col] of [
-    ['branch',   'd.branch'],
-    ['channel',  'd.store_category'],
-    ['gender',   'd.gender'],
-    ['series',   'd.series'],
-    ['color',    'd.color'],
-    ['tier',     'd.tier'],
-    ['tipe',     'd.tipe'],
-    ['version',  'd.version'],
-    ['entity',   'd.source_entity'],
-    ['customer', 'd.customer'],
-  ] as [string, string][]) {
-    if (param === skipParam) continue;
-    const fv = parseMulti(sp, param);
-    if (fv.length === 0) continue;
-    const phs = fv.map(() => `$${i++}`).join(', ');
-    conds.push(`${col} IN (${phs})`);
-    vals.push(...fv);
-  }
-
-  if (sp.get('excludeNonSku') === '1') {
-    conds.push(`d.is_non_sku = FALSE`);
-  }
-
-  return { conds, nextIdx: i };
-}
+const DIMS = [
+  { key: 'genders',  col: 'gender_group', param: 'gender',  nullFilter: 'gender_group IS NOT NULL',                       orderBy: 'val' },
+  { key: 'series',   col: 'series',       param: 'series',  nullFilter: "series IS NOT NULL AND series != ''",             orderBy: 'val' },
+  { key: 'colors',   col: 'group_warna',  param: 'color',   nullFilter: "group_warna IS NOT NULL AND group_warna != '' AND group_warna != 'OTHER'", orderBy: 'val' },
+  { key: 'tiers',    col: 'tier',         param: 'tier',    nullFilter: 'tier IS NOT NULL',                                orderBy: 'val' },
+  { key: 'tipes',    col: 'tipe',         param: 'tipe',    nullFilter: 'tipe IS NOT NULL',                                orderBy: 'val' },
+  { key: 'sizes',    col: 'ukuran',       param: 'size',    nullFilter: "ukuran IS NOT NULL AND ukuran != ''",             orderBy: SIZE_ORDER },
+  { key: 'entitas',  col: 'source_entity', param: 'entitas', nullFilter: "source_entity IS NOT NULL AND source_entity != ''", orderBy: 'val' },
+  { key: 'versions', col: 'v',            param: 'v',       nullFilter: "v IS NOT NULL AND v != ''",                        orderBy: 'val' },
+] as const;
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
 
   try {
-    const dims = [
-      { key: 'branches',  col: 'd.branch',         param: 'branch',   nullFilter: 'd.branch IS NOT NULL' },
-      { key: 'channels',  col: 'd.store_category',  param: 'channel',  nullFilter: 'd.store_category IS NOT NULL' },
-      { key: 'genders',   col: 'd.gender',          param: 'gender',   nullFilter: 'd.gender IS NOT NULL' },
-      { key: 'series',    col: 'd.series',          param: 'series',   nullFilter: 'd.series IS NOT NULL' },
-      { key: 'colors',    col: 'd.color',           param: 'color',    nullFilter: `d.color IS NOT NULL AND d.color != ''` },
-      { key: 'tiers',     col: 'd.tier',            param: 'tier',     nullFilter: 'd.tier IS NOT NULL' },
-      { key: 'tipes',     col: 'd.tipe',            param: 'tipe',     nullFilter: 'd.tipe IS NOT NULL' },
-      { key: 'versions',  col: 'd.version',         param: 'version',  nullFilter: 'd.version IS NOT NULL' },
-      { key: 'entities',  col: 'd.source_entity',   param: 'entity',   nullFilter: 'd.source_entity IS NOT NULL' },
-      { key: 'customers', col: 'd.customer',         param: 'customer', nullFilter: `d.customer IS NOT NULL AND d.customer != ''` },
-    ] as const;
-
     const results = await Promise.all(
-      dims.map(async (dim) => {
+      DIMS.map(async (dim) => {
+        const conds: string[] = [dim.nullFilter];
         const vals: unknown[] = [];
-        const { conds } = buildWhereClause(sp, dim.param, vals, 1);
-        conds.push(dim.nullFilter);
+        let i = 1;
 
-        const where = `WHERE ${conds.join(' AND ')}`;
-        const sql = `SELECT DISTINCT ${dim.col} AS val FROM mart.mv_accurate_summary d ${where} ORDER BY val`;
+        // Exclude non-product items
+        conds.push("kode_besar !~ '^(gwp|hanger|paperbag|shopbag)'");
+
+        // Hardcoded WH gudang filter
+        conds.push(`nama_gudang IN ('${WH_GUDANGS.join("','")}')`);
+
+        // Cross-filter: apply other selected filters
+        for (const other of DIMS) {
+          if (other.param === dim.param) continue;
+          const fv = parseMulti(sp, other.param);
+          if (fv.length === 0) continue;
+          if (fv.length === 1) {
+            conds.push(`${other.col} = $${i++}`);
+            vals.push(fv[0]);
+          } else {
+            const phs = fv.map(() => `$${i++}`).join(', ');
+            conds.push(`${other.col} IN (${phs})`);
+            vals.push(...fv);
+          }
+        }
+
+        const q = sp.get('q');
+        if (q) {
+          conds.push(`(kode_besar ILIKE $${i} OR kode ILIKE $${i})`);
+          vals.push(`%${q}%`);
+          i++;
+        }
+
+        const inner = `SELECT DISTINCT ${dim.col} AS val FROM core.dashboard_cache WHERE ${conds.join(' AND ')}`;
+        const sql = `SELECT val FROM (${inner}) sub ORDER BY ${dim.orderBy}`;
         const res = await pool.query(sql, vals);
-        return { key: dim.key, values: res.rows.map((r: Record<string, unknown>) => r.val).filter((v) => v !== null && v !== '') };
+        return { key: dim.key, values: res.rows.map((r: Record<string, unknown>) => r.val).filter(Boolean) };
       })
     );
 
@@ -92,7 +77,7 @@ export async function GET(req: NextRequest) {
     for (const r of results) body[r.key] = r.values;
 
     return NextResponse.json(body, {
-      headers: { 'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=3600' },
+      headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' },
     });
   } catch (e) {
     console.error('wh-stock filter-options error:', e);
