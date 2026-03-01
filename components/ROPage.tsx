@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ShoppingCart, RefreshCw, X, Download, Package } from 'lucide-react';
+import { ShoppingCart, RefreshCw, X, Download, Package, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import SOPBGenerator from './SOPBGenerator';
 import ROProcess from './ROProcess';
 import { DNPBErrorContent, DNPBErrorDetailModal, DNPBErrorRO } from './DNPBErrorContent';
 import { toast } from 'sonner';
+import ROUpload from './ROUpload';
 
 interface DashboardStats {
   totalRO: number;
@@ -155,6 +156,7 @@ function DashboardContent() {
   const [stats, setStats] = useState<DashboardStats>({ totalRO: 0, queued: 0, totalBoxes: 0, totalPairs: 0 });
   const [roData, setRoData] = useState<ROItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [showUpload, setShowUpload] = useState(false);
   const [selectedRO, setSelectedRO] = useState<RODetail | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
@@ -262,7 +264,19 @@ function DashboardContent() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-between items-center">
+        <button
+          onClick={() => setShowUpload(!showUpload)}
+          className={cn(
+            "flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+            showUpload
+              ? "bg-[#0D3B2E] text-white"
+              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          )}
+        >
+          <Upload className="w-4 h-4" />
+          Upload RO
+        </button>
         <button
           onClick={fetchDashboardData}
           disabled={isLoading}
@@ -271,6 +285,15 @@ function DashboardContent() {
           <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
         </button>
       </div>
+
+      {showUpload && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <ROUpload onUploadComplete={() => {
+            fetchDashboardData();
+            setShowUpload(false);
+          }} />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         {statsCards.map((stat, index) => {
