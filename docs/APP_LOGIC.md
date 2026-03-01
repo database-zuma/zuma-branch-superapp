@@ -322,99 +322,38 @@ CANNOT DO (in zuma-ro-pwa):
 
 ---
 
-## Create RO Flow
+## Create RO Flow (Updated March 2026)
 
-### User Journey: Creating a New RO
+### Primary Method: XLSX Upload
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         CREATE RO FLOWCHART                                 │
+│                    XLSX UPLOAD FLOW (Primary)                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-┌─────────────┐
-│  User opens │
-│ RequestForm │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────────┐     ┌─────────────────┐
-│ Select Store    │────▶│ Special Store?  │
-│ (Dropdown)      │     │ (Wholesale/etc) │
-└─────────────────┘     └────────┬────────┘
-                                 │
-                    ┌────────────┴────────────┐
-                    │                         │
-                    ▼                         ▼
-            ┌─────────────┐           ┌─────────────┐
-            │ YES: Skip   │           │ NO: Regular │
-            │ Auto-Gen    │           │ Store       │
-            └─────────────┘           └──────┬──────┘
-                                             │
-                                             ▼
-                                    ┌─────────────────┐
-                                    │ Click AUTO      │
-                                    │ Generate Button │
-                                    └────────┬────────┘
-                                             │
-                                             ▼
-                                    ┌─────────────────┐
-                                    │ API Call:       │
-                                    │ GET /api/ro/    │
-                                    │ recommendations │
-                                    └────────┬────────┘
-                                             │
-                                             ▼
-                                    ┌─────────────────┐
-                                    │ Populate Table  │
-                                    │ with Suggested  │
-                                    │ Quantities      │
-                                    └────────┬────────┘
-                                             │
-                                             ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                        ARTICLE MANAGEMENT                                 │
-└──────────────────────────────────────────────────────────────────────────┘
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│ AS receives │────▶│ Dashboard   │────▶│ Drag-drop   │────▶│ POST /api/  │
+│ RO Request  │     │ Upload RO   │     │ XLSX file   │     │ ro/upload   │
+│ XLSX        │     │ button      │     │             │     │ (parse)     │
+└─────────────┘     └─────────────┘     └─────────────┘     └──────┬──────┘
+                                                              │
+                                                              ▼
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│ Preview     │────▶│ Confirm     │────▶│ POST /api/  │────▶│ Success!    │
+│ entity      │     │ button      │     │ ro/upload/  │     │ ROs in      │
+│ breakdown   │     │             │     │ confirm     │     │ QUEUE       │
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
 
-┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-│ + Add       │   │ Edit Qty    │   │ Clear All   │   │ Submit RO   │
-│ Article     │   │ (DDD/LJBB)  │   │ (Confirm)   │   │ (Validate)  │
-└──────┬──────┘   └──────┬──────┘   └──────┬──────┘   └──────┬──────┘
-       │                 │                 │                 │
-       ▼                 ▼                 ▼                 ▼
-┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-│ Search      │   │ +/- Buttons │   │ Empty Table │   │ Validation: │
-│ Articles    │   │ or Type     │   │ Confirm     │   │ - Store set?│
-│ (API Call)  │   │ Directly    │   │ Dialog      │   │ - Items > 0?│
-└──────┬──────┘   └─────────────┘   └─────────────┘   │ - Stock OK? │
-       │                                              └──────┬──────┘
-       │                                                     │
-       ▼                                                     ▼
-┌─────────────┐                                     ┌─────────────┐
-│ Select      │                                     │ POST /api/  │
-│ Article     │                                     │ ro/submit   │
-│ Append to   │                                     └──────┬──────┘
-│ List        │                                            │
-└─────────────┘                                            ▼
-                                                  ┌─────────────┐
-                                                  │ Generate    │
-                                                  │ RO ID:      │
-                                                  │ RO-YYMM-####│
-                                                  └──────┬──────┘
-                                                         │
-                                                         ▼
-                                                  ┌─────────────┐
-                                                  │ Insert to   │
-                                                  │ ro_process  │
-                                                  │ (per article│
-                                                  │ per row)    │
-                                                  └──────┬──────┘
-                                                         │
-                                                         ▼
-                                                  ┌─────────────┐
-                                                  │ Success!    │
-                                                  │ Show Toast  │
-                                                  └─────────────┘
+Parse logic:
+1. Sheet 3 "Daftar RO Box" → extract kode_mix + qty
+2. Map kode_mix → article_code via portal.kodemix
+3. Check ro_whs_readystock for entity availability
+4. Allocate: DDD → LJBB → MBB → UBB (waterfall)
 ```
+
+### Legacy Method: Manual GUI Submit
+
+Still available via `/api/ro/submit` but XLSX upload is the primary flow.
 
 ### RO ID Generation Logic
 
@@ -539,55 +478,34 @@ Readonly Statuses: READY_TO_SHIP, IN_DELIVERY, ARRIVED, COMPLETED
 │ Check Warehouse │
 │ Allocation      │
 └────────┬────────┘
-         │
-    ┌────┴────┐
-    │         │
-    ▼         ▼
-┌───────┐ ┌───────┐
-│ DDD   │ │ LJBB  │
-│Boxes? │ │Boxes? │
-└───┬───┘ └───┬───┘
-    │         │
-    ▼         ▼
-┌─────────────────┐
-│ Show DNPB Input │
-│ Fields          │
-│ (Dynamic Form)  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ User Enters     │
-│ DNPB Number(s)  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Format Validate │
-│ DNPB/WAREHOUSE/ │
-│ WHS/YEAR/ROMAN/ │
-│ NUMBER          │
-└────────┬────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                    WAREHOUSE-SPECIFIC VALIDATION                        │
-└──────────────────────────────────────────────────────────────────────────┘
-
-DDD DNPB:                              LJBB DNPB:
-┌─────────────────┐                    ┌─────────────────┐
-│ Check against   │                    │ Check against   │
-│ supabase_       │                    │ supabase_       │
-│ transaksiDDD    │                    │ transaksiLJBB   │
-└────────┬────────┘                    └────────┬────────┘
-         │                                      │
-         ▼                                      ▼
-    ┌─────────┐                            ┌─────────┐
-    │ Match?  │                            │ Match?  │
-    └────┬────┘                            └────┬────┘
-    ┌────┴────┐                            ┌────┴────┐
-    │         │                            │         │
-    ▼         ▼                            ▼         ▼
+         |
+    ┌────┴────────┬────────────┐
+    │             │            │
+    ▼             ▼            ▼
+┌───────┐   ┌───────┐   ┌───────┐   ┌───────┐
+│ DDD   │   │ LJBB  │   │ MBB   │   │ UBB   │
+│Boxes? │   │Boxes? │   │Boxes? │   │Boxes? │
+└───┬───┘   └───┬───┘   └───┬───┘   └───┬───┘
+    │             │           │           │
+    ▼             ▼           ▼           ▼
+┌──────────────────────────────────────────────┐
+│ Show DNPB Input Fields (per entity with     │
+│ boxes > 0). MBB/UBB included since v2.0.0.  │
+└──────────────────┬───────────────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────────────┐
+│ User Enters DNPB Number per entity           │
+│ ALL entities with boxes > 0 MUST have DNPB  │
+│ numbers before advancing to READY_TO_SHIP    │
+└──────────────────┬───────────────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────────────┐
+│ Per-entity validation against                │
+│ supabase_transaksi[Entity] VIEW              │
+│ → sets dnpb_match_[entity] = TRUE if found   │
+└──────────────────────────────────────────────┘
 ┌───────┐ ┌───────┐                    ┌───────┐ ┌───────┐
 │ YES   │ │ NO    │                    │ YES   │ │ NO    │
 │ dnpb_ │ │ dnpb_ │                    │ dnpb_ │ │ dnpb_ │
