@@ -73,7 +73,7 @@ For each entity (DDD, LJBB, MBB, UBB), columns appear in this order:
 | 2 | [Entity] Transaksi IN | SUM of "Transaksi in" from supabase_transkasi[Entity] |
 | 3 | [Entity] Transaksi OUT | SUM of "transaksi out" from supabase_transkasi[Entity] |
 | 4 | ro_ongoing_[entity] | SUM of boxes_allocated_[entity] WHERE dnpb_match = FALSE |
-| 5 | Stock Akhir [Entity] | Transaksi IN - Transaksi OUT - ro_ongoing |
+| 5 | Stock Akhir [Entity] | S.AWAL + Transaksi IN - Transaksi OUT - ro_ongoing |
 
 ### Full Column List
 
@@ -112,12 +112,13 @@ Stock Akhir Total
 ### Calculation Formula
 
 ```
-Stock Akhir [Entity] = Transaksi IN - Transaksi OUT - ro_ongoing_[entity]
+Stock Akhir [Entity] = S.AWAL + Transaksi IN - Transaksi OUT - ro_ongoing_[entity]
 
 Where:
-- Transaksi IN = SUM from supabase_transkasi[Entity]."Transaksi in"
-- Transaksi OUT = SUM from supabase_transkasi[Entity]."transaksi out"
-- ro_ongoing_[entity] = SUM from ro_process.boxes_allocated_[entity] 
+- S.AWAL = Stock awal (Dec 31 2025 snapshot) from supabase_stockawal[Entity]
+- Transaksi IN = boxes received at Warehouse Pusat (from core.receive_item, Jan 2026+)
+- Transaksi OUT = boxes shipped from Warehouse Pusat (from core.outbound_whs_attributed, Jan 2026+)
+- ro_ongoing_[entity] = SUM from ro_process.boxes_allocated_[entity]
                         WHERE dnpb_match = FALSE
 ```
 
@@ -147,18 +148,21 @@ Each row in the VIEW represents ONE entity:
 - Row with Entitas='LJBB' → only shows LJBB stock/transactions
 - Row with Entitas='MBB' → only shows MBB stock/transactions
 
-### Data Sources
+### Data Sources (Automated — March 2026)
 
-| Data | Source Table |
-|------|--------------|
-| Stock Awal DDD | supabase_stockawalDDD."S. AWAL" |
-| Stock Awal LJBB | supabase_stockawalLJBB."S. AWAL" |
-| Stock Awal MBB | supabase_stockawalMBB."S. AWAL" |
-| DDD Transaksi | supabase_transkasiDDD |
-| LJBB Transaksi | supabase_transkasiLJBB |
-| MBB Transaksi | supabase_transkasiMBB |
-| ro_ongoing_* | ro_process (where dnpb_match = FALSE) |
-
+| Data | Source | Notes |
+|------|--------|-------|
+| Stock Awal DDD | `supabase_stockawalDDD."S. AWAL"` | Manual GSheet snapshot, Dec 31 2025 |
+| Stock Awal LJBB | `supabase_stockawalLJBB."S. AWAL"` | Manual GSheet snapshot, Dec 31 2025 |
+| Stock Awal MBB | `supabase_stockawalMBB."S. AWAL"` | Manual GSheet snapshot, Dec 31 2025 |
+| DDD Transaksi OUT | `core.outbound_whs_attributed` WHERE `attributed_entity='DDD'` | Automated from Accurate API |
+| LJBB Transaksi OUT | `core.outbound_whs_attributed` WHERE `attributed_entity='LJBB'` | Via `ljbb_dnpb_list` + baby filter |
+| MBB Transaksi OUT | `core.outbound_whs_attributed` WHERE `attributed_entity='MBB'` | Automated from Accurate API |
+| DDD Transaksi IN | `core.receive_item` WHERE `entity='DDD'` | Automated from Accurate API |
+| LJBB Transaksi IN | Always 0 | LJBB has no physical warehouse receiving |
+| MBB Transaksi IN | `core.receive_item` WHERE `entity='MBB'` | Automated from Accurate API |
+| ro_ongoing_* | `ro_process` (where `dnpb_match = FALSE`) | Unchanged |
+| Date filter | `trans_date >= '2026-01-01'` | All transaksi CTEs filter to Jan 2026+ (post stock awal) |
 ---
 
 ## 3. DNPB Matching Logic
@@ -170,10 +174,9 @@ DNPB = Delivery Note Pengiriman Barang
 1. User submits RO → `ro_process` row created with `dnpb_match = FALSE`
 2. RO goes through status flow (QUEUE → APPROVED → ... → IN_DELIVERY)
 3. At delivery stage, user inputs DNPB number (e.g., `DNPB/DDD/WHS/2026/I/001`)
-4. System checks if DNPB exists in transaction tables:
-   - `supabase_transkasiDDD."DNPB"`
-   - `supabase_transkasiLJBB."DNPB"`
-   - `supabase_transkasiMBB."DNPB"`
+4. System checks if DNPB exists in Accurate API transfer data:
+   - `core.item_transfer` (transfer_number field)
+   - Previously checked GSheet tables (supabase_transkasi*) — now automated
 5. If match found → `dnpb_match = TRUE`
 6. RO allocation excluded from `ro_ongoing_*` calculation
 
@@ -255,8 +258,8 @@ Stock Akhir DDD: 73 - 44 - 0 = 29   <-- Same result, no double-count
 
 ---
 
-*Last Updated: 2026-03-01*
-*Migration: 009_update_master_mutasi_whs_ro_ongoing.sql*
+*Last Updated: 2026-03-02*
+*Latest change: master_mutasi_whs automated (Accurate API replaces GSheet transaksi)*
 
 ---
 
@@ -274,34 +277,122 @@ data from Accurate Online API. Two ETL scripts pull data daily:
 ### Union Views
 - `core.item_transfer` — UNION ALL of DDD, MBB, UBB, LJBB item_transfer tables
 - `core.receive_item` — UNION ALL of DDD, MBB, LJBB receive_item tables
+- `core.outbound_whs_attributed` — Article-level outbound with LJBB entity attribution (see below)
 
 ### Cron Schedule (VPS 76.13.194.120)
 ```
+03:00 WIB — stock pull
 04:50 WIB — cron_item_transfer_pull.sh (all entities, last 3 days)
+05:00 WIB — sales pull
 05:10 WIB — cron_receive_item_pull.sh (DDD/MBB/LJBB, last 3 days)
+05:30 WIB — materialized view refresh
+07:00 WIB — dashboard cache refresh
 ```
 
 ### Data Mapping (GSheet → Accurate)
-- **Transaksi OUT** = `core.item_transfer` WHERE `from_warehouse = 'Warehouse Pusat'` AND `transfer_number LIKE '%DNPB%'`
+- **Transaksi OUT** = `core.outbound_whs_attributed` (aggregated to article+DNPB level with entity attribution)
 - **Transaksi IN** = `core.receive_item` WHERE `warehouse_name = 'Warehouse Pusat'`
-- **Conversion**: pairs / 12 = boxes (all articles = 12 pairs/box via kodemix)
-- **Join key**: `item_code = portal.kodemix.kode_besar` (no status filter)
-- **Article aggregation**: `LEFT(item_code, LENGTH(item_code) - 3)` strips size suffix
+- **Conversion**: pairs / 12 = boxes (verified: 838/839 articles have ppb=12 via kodemix assortment sum)
+- **Join key**: `item_code = portal.kodemix.kode_besar` (direct match, no status filter)
+- **Article code**: `portal.kodemix.kode` (article-level, stripped from size-level `kode_besar`)
 
-### Verification Results (2026-03-01)
-- **DDD outbound**: 98.2% match (4,117 boxes API vs 4,191 GSheet — gap = accessories HANGER/PAPERBAG)
-- **MBB outbound**: Exact match on shared articles (50=50, 20=20, 20=20). GSheet was subset (4/74 articles)
-- **LJBB**: 0 own item_transfers. LJBB stock movements recorded under DDD/MBB entities (cross-entity)
+### LJBB Entity Attribution (core.outbound_whs_attributed)
 
-### Key Discovery: LJBB Cross-Entity
-LJBB has no Accurate entity for item transfers. Its outbound stock:
-- Uses DDD DNPB numbers (e.g., DNPB/DDD/WHS/2026/I/023)
-- Uses MBB DNPB numbers (e.g., DNPB/MBB/WHS/2026/I/002)
-- Must be identified by destination store, not by source entity
+**Problem**: LJBB has no Accurate entity for item transfers. Baby/kids products are shipped
+via DDD or MBB entity DNPBs. Without separation, the same transfer would double-count in both
+DDD and LJBB stock calculations.
+
+**Solution**: Manual DNPB list + baby article filter.
+
+1. **Manual list**: `branch_super_app_clawdbot.ljbb_dnpb_list` table stores transfer_numbers
+   that belong to LJBB (added by human review of GSheet/Accurate data)
+2. **Baby filter**: From those DNPBs, only articles with Z2 (Baby) or J1 (Junior) prefix
+   are attributed to LJBB. Adult items (L1, M1, etc.) stay with source entity.
+
+```sql
+-- Attribution logic in core.outbound_whs_attributed:
+CASE
+  WHEN ljbb.transfer_number IS NOT NULL AND km.kode ~ '^(Z2|J1)' THEN 'LJBB'
+  ELSE t.entity
+END AS attributed_entity
+```
+
+**ljbb_dnpb_list table** (`branch_super_app_clawdbot`):
+| Column | Type | Description |
+|--------|------|-------------|
+| id | SERIAL | Primary key |
+| transfer_number | VARCHAR(100) UNIQUE | Accurate transfer_number (e.g., DNPB/DDD/WHS/T/2026/I/002) |
+| source_entity | VARCHAR(10) | DDD or MBB |
+| notes | TEXT | Why this DNPB was assigned to LJBB |
+| added_at | TIMESTAMP | When added |
+| added_by | VARCHAR(50) | Who added it |
+
+**Important**: This is a MANUAL process. Someone must periodically review new DDD/MBB DNPBs
+and tag which ones should be attributed to LJBB. The view then uses this list automatically.
+
+**Why not auto-detect?** User rejected pure-baby auto-detection rule because:
+- Some DNPBs are mixed (baby + adult items) — auto-detect would miss or over-attribute
+- Manual review gives human control over attribution decisions
+- The `ljbb_dnpb_list` approach prevents double-counting by exclusive ownership
+
+**View columns** (core.outbound_whs_attributed):
+| Column | Description |
+|--------|-------------|
+| `trans_date` | Transfer date |
+| `transfer_number` | DNPB number |
+| `article_code` | Article-level code (from kodemix.kode) |
+| `article_name` | Article description |
+| `pairs` | Total pairs (sum across sizes) |
+| `boxes` | Boxes = pairs / pairs_per_box (default 12) |
+| `source_entity` | Original Accurate entity (DDD/MBB) |
+| `attributed_entity` | Final: LJBB if DNPB in list AND baby article, else source_entity |
+| `to_warehouse` | Destination warehouse/store |
+
+### Verification Results (2026-03-02)
+- **DDD outbound**: 6,849 boxes (Jan-Feb 2026, all outbound from Warehouse Pusat)
+- **MBB outbound**: 1,837 boxes (Jan-Feb 2026)
+- **LJBB outbound**: 177 boxes from 26 DNPBs (21 DDD-origin + 5 MBB-origin)
+- **Date filter**: `trans_date >= '2026-01-01'` applied in master_mutasi_whs (post stock-awal)
+- Zero duplication: each DNPB attributed to exactly one entity
+- Baby filter prevents adult items in mixed DNPBs from being counted as LJBB
 
 ### Pipeline Status
-- [x] item_transfer ETL (deployed, cron active)
-- [x] receive_item ETL (deployed, cron active)
+- [x] item_transfer ETL (deployed, cron active at 04:50 WIB)
+- [x] receive_item ETL (deployed, cron active at 05:10 WIB)
 - [x] Historical backfill complete (DDD: 2326 rows, MBB: 8777 rows, LJBB: 3 rows)
-- [ ] Replace GSheet CTEs in master_mutasi_whs with automated data
-- [ ] Handle LJBB cross-entity filtering logic
+- [x] LJBB entity attribution view (`core.outbound_whs_attributed`) with ljbb_dnpb_list
+- [x] `master_mutasi_whs` replaced with automated data (March 2, 2026)
+- [x] Date filter `>= 2026-01-01` applied to all transaksi CTEs
+---
+
+## 9. RO Process Flow (Current)
+
+### Entry Point
+Area Supervisor (AS) creates RO via app GUI:
+1. Select store → add articles one-by-one (or click AUTO to load from `ro_recommendations`)
+2. Submit → POST `/api/ro/submit` → validates stock → generates RO ID → bulk INSERT into `ro_process`
+3. All articles enter as status = QUEUE
+
+### Status Lifecycle (11 statuses)
+```
+QUEUE → APPROVED → PICKING → PICK_VERIFIED → DNPB_PROCESS → READY_TO_SHIP
+  → IN_DELIVERY → ARRIVED → COMPLETED
+                     ↘ BANDING_SENT → ARRIVED/COMPLETED
+Any status (except terminal) → CANCELLED
+```
+
+### Planned Change: Iris AI RO Request Import
+**Status: DOCUMENTED — not yet implementing** (per user: "catet dulu aja")
+
+New flow replaces manual GUI article entry:
+1. **Iris AI** generates RO Request (articles + quantities per store)
+2. **AS** reviews and adjusts in Google Sheet
+3. **WH Supervisor** approves the adjusted request
+4. **System** bulk-imports approved articles into `ro_process` as QUEUE with auto-generated `ro_id`
+5. All downstream status tracking stays the same (QUEUE → ... → COMPLETED)
+
+Key design decisions TBD:
+- New API endpoint `/api/ro/import/iris` for bulk import
+- GSheet → JSON parsing for import format
+- Whether to keep `ro_recommendations` table or replace with Iris output
+- Stock validation at import time vs at approval time
