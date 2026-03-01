@@ -144,8 +144,12 @@ export async function PATCH(request: Request) {
         roId,
         dnpbNumberDDD: dnpbNumberDDD || null,
         dnpbNumberLJBB: dnpbNumberLJBB || null,
+        dnpbNumberMBB: dnpbNumberMBB || null,
+        dnpbNumberUBB: dnpbNumberUBB || null,
         dnpbMatchDDD,
         dnpbMatchLJBB,
+        dnpbMatchMBB,
+        dnpbMatchUBB,
         updatedRows: data.length
       }
     });

@@ -42,14 +42,14 @@ export async function PATCH(request: Request) {
     const errors = [];
 
     for (const update of updates) {
-      const boxesRequested = update.dddBoxes + update.ljbbBoxes;
-
       const { rows: data, rowCount } = await pool.query(
         `UPDATE ${SCHEMA}.ro_process
-         SET boxes_allocated_ddd = $1, boxes_allocated_ljbb = $2, boxes_requested = $3, updated_at = $4
-         WHERE ro_id = $5 AND article_code = $6
+         SET boxes_allocated_ddd = $1, boxes_allocated_ljbb = $2,
+             boxes_requested = $1 + $2 + boxes_allocated_mbb + boxes_allocated_ubb,
+             updated_at = $3
+         WHERE ro_id = $4 AND article_code = $5
          RETURNING *`,
-        [update.dddBoxes, update.ljbbBoxes, boxesRequested, new Date().toISOString(), roId, update.articleCode]
+        [update.dddBoxes, update.ljbbBoxes, new Date().toISOString(), roId, update.articleCode]
       );
 
       if (!data || (rowCount ?? 0) === 0) {
