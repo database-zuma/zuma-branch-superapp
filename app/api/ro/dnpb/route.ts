@@ -39,7 +39,7 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const { roId, dnpbNumberDDD, dnpbNumberLJBB } = await request.json();
+    const { roId, dnpbNumberDDD, dnpbNumberLJBB, dnpbNumberMBB, dnpbNumberUBB } = await request.json();
 
     if (!roId) {
       return NextResponse.json(
@@ -50,6 +50,8 @@ export async function PATCH(request: Request) {
 
     let dnpbMatchDDD = false;
     let dnpbMatchLJBB = false;
+    let dnpbMatchMBB = false;
+    let dnpbMatchUBB = false;
 
     if (dnpbNumberDDD) {
       if (!dnpbNumberDDD.match(dnpbPattern)) {
@@ -71,6 +73,26 @@ export async function PATCH(request: Request) {
       dnpbMatchLJBB = await validateDNPB(dnpbNumberLJBB);
     }
 
+    if (dnpbNumberMBB) {
+      if (!dnpbNumberMBB.match(dnpbPattern)) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid DNPB MBB format. Expected: DNPB/MBB/WHS/2026/I/001' },
+          { status: 400 }
+        );
+      }
+      dnpbMatchMBB = await validateDNPB(dnpbNumberMBB);
+    }
+
+    if (dnpbNumberUBB) {
+      if (!dnpbNumberUBB.match(dnpbPattern)) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid DNPB UBB format. Expected: DNPB/UBB/WHS/2026/I/001' },
+          { status: 400 }
+        );
+      }
+      dnpbMatchUBB = await validateDNPB(dnpbNumberUBB);
+    }
+
     const setClauses: string[] = ['updated_at = $1'];
     const params: unknown[] = [new Date().toISOString()];
     let paramIndex = 2;
@@ -87,6 +109,20 @@ export async function PATCH(request: Request) {
       params.push(dnpbNumberLJBB);
       setClauses.push(`dnpb_match_ljbb = $${paramIndex++}`);
       params.push(dnpbMatchLJBB);
+    }
+
+    if (dnpbNumberMBB !== undefined) {
+      setClauses.push(`dnpb_number_mbb = $${paramIndex++}`);
+      params.push(dnpbNumberMBB);
+      setClauses.push(`dnpb_match_mbb = $${paramIndex++}`);
+      params.push(dnpbMatchMBB);
+    }
+
+    if (dnpbNumberUBB !== undefined) {
+      setClauses.push(`dnpb_number_ubb = $${paramIndex++}`);
+      params.push(dnpbNumberUBB);
+      setClauses.push(`dnpb_match_ubb = $${paramIndex++}`);
+      params.push(dnpbMatchUBB);
     }
 
     params.push(roId);

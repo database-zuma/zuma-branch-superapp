@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ShoppingCart, RefreshCw, X, Download, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import RequestForm from './RequestForm';
+import SOPBGenerator from './SOPBGenerator';
 import ROProcess from './ROProcess';
 import { DNPBErrorContent, DNPBErrorDetailModal, DNPBErrorRO } from './DNPBErrorContent';
 import { toast } from 'sonner';
@@ -44,7 +44,7 @@ interface RODetail {
   articles: ROArticle[];
 }
 
-type SubTab = 'dashboard' | 'request' | 'process' | 'dnpb-error';
+type SubTab = 'dashboard' | 'process' | 'sopb' | 'dnpb-error';
 
 export default function ROPage() {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('dashboard');
@@ -52,8 +52,8 @@ export default function ROPage() {
 
   const subTabs = [
     { id: 'dashboard' as SubTab, label: 'Dashboard' },
-    { id: 'request' as SubTab, label: 'Request Form' },
     { id: 'process' as SubTab, label: 'RO Process' },
+    { id: 'sopb' as SubTab, label: 'SOPB Generator' },
     { id: 'dnpb-error' as SubTab, label: 'DNPB Error' },
   ];
 
@@ -61,8 +61,8 @@ export default function ROPage() {
     switch (activeSubTab) {
       case 'dashboard':
         return <DashboardContent />;
-      case 'request':
-        return <RequestForm />;
+      case 'sopb':
+        return <SOPBGenerator />;
       case 'process':
         return <ROProcess />;
       case 'dnpb-error':

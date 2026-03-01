@@ -207,12 +207,67 @@ Incoming rows require pairs-to-boxes conversion:
 - ppb = SUM(count_by_assortment) per article (default 12 if missing)
 - boxes = ROUND(SUM(pairs) / ppb)
 
-### Backup Tables
-Old GSheet data preserved as:
-- `_backup_transaksiDDD` (1149 rows)
-- `_backup_transaksiLJBB` (58 rows)
-- `_backup_transaksiMBB` (29 rows)
-- `_backup_transaksiUBB` (0 rows)
+### Backup Tables (DELETED Mar 2026)
+Old GSheet data has been deleted:
+- `_backup_transaksiDDD` — DELETED (replaced by automated `supabase_transaksiDDD` VIEW)
+- `_backup_transaksiLJBB` — DELETED (replaced by automated `supabase_transaksiLJBB` VIEW)
+- `_backup_transaksiMBB` — DELETED (replaced by automated `supabase_transaksiMBB` VIEW)
+- `_backup_transaksiUBB` — DELETED (archived then removed)
+
+### Deleted Tables (Mar 2026)
+- `ro_stockwhs` — DELETED (replaced by `ro_whs_readystock` VIEW which reads from `master_mutasi_whs`)
+- `ro_recommendations` — DELETED (replaced by planogram-driven RO logic)
+
+## 2c. ro_whs_readystock VIEW (WH Box Availability)
+
+Aggregated VIEW that shows available box stock per article in WH Pusat, across all entities.
+Reads from `master_mutasi_whs` Stock Akhir columns (which already subtract ro_ongoing).
+
+### Column Structure
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `article_code` | varchar | Article code (from Kode Artikel) |
+| `article_name` | varchar | Article name |
+| `tier` | varchar | Product tier |
+| `tipe` | varchar | Product type (Jepit/Fashion) |
+| `gender` | varchar | Gender |
+| `series` | varchar | Series |
+| `ddd_available` | bigint | Available boxes in DDD entity |
+| `ljbb_available` | bigint | Available boxes in LJBB entity |
+| `mbb_available` | bigint | Available boxes in MBB entity |
+| `ubb_available` | bigint | Available boxes in UBB entity |
+| `total_available` | bigint | Total available boxes (DDD + LJBB + MBB + UBB) |
+| `last_calculated` | timestamp | Timestamp of query (always now()) |
+
+### Logic
+
+```sql
+SELECT
+    m."Kode Artikel" AS article_code,
+    MAX(m."Nama Artikel") AS article_name,
+    MAX(m."Tier") AS tier,
+    MAX(m.tipe) AS tipe, MAX(m.gender) AS gender, MAX(m.series) AS series,
+    SUM(m."Stock Akhir DDD") AS ddd_available,
+    SUM(m."Stock Akhir LJBB") AS ljbb_available,
+    SUM(m."Stock Akhir MBB") AS mbb_available,
+    SUM(m."Stock Akhir UBB") AS ubb_available,
+    SUM(m."Stock Akhir Total") AS total_available,
+    now() AS last_calculated
+FROM master_mutasi_whs m
+GROUP BY m."Kode Artikel"
+```
+
+### Usage
+- **RO Box availability filter**: `WHERE ddd_available > 0` to check if WH has boxes for a given article
+- **Dashboard stock overview**: Quick article-level stock check across all entities
+- **RO Surplus skill**: Used as WH stock source instead of deleted `ro_stockwhs` table
+
+### Key Notes
+- Aggregates across DDD/LJBB/MBB rows (master_mutasi_whs has per-entity rows)
+- Stock Akhir already subtracts `ro_ongoing` (in-flight RO not yet DNPB-matched)
+- Negative values are possible (more outbound than stock awal for that entity)
+- Auto-updates as source VIEWs/data changes (no manual refresh needed)
 
 ## 3. DNPB Matching Logic
 
@@ -420,7 +475,7 @@ and tag which ones should be attributed to LJBB. The view then uses this list au
 
 ### Entry Point
 Area Supervisor (AS) creates RO via app GUI:
-1. Select store → add articles one-by-one (or click AUTO to load from `ro_recommendations`)
+1. Select store → add articles one-by-one (AUTO load from `ro_recommendations` has been removed — table deleted)
 2. Submit → POST `/api/ro/submit` → validates stock → generates RO ID → bulk INSERT into `ro_process`
 3. All articles enter as status = QUEUE
 
@@ -445,5 +500,6 @@ New flow replaces manual GUI article entry:
 Key design decisions TBD:
 - New API endpoint `/api/ro/import/iris` for bulk import
 - GSheet → JSON parsing for import format
-- Whether to keep `ro_recommendations` table or replace with Iris output
+- `ro_recommendations` table deleted (Mar 2026) — Iris output replaces it
 - Stock validation at import time vs at approval time
+- SOPB Generator at DNPB_PROCESS status (box → SKU pairs conversion)
