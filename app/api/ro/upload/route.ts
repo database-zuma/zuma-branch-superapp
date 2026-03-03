@@ -6,7 +6,7 @@ import ExcelJS from 'exceljs';
 interface ParsedArticle {
   rowNum: number;
   articleName: string;
-  kodeMix: string;
+  kodeKecil: string;
   tier: number;
   boxQty: number;
   whAvailable: string;
@@ -100,13 +100,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // Find header row (contains "No", "Article", "Kode Mix", "Tier", "Box Qty", "WH Available")
+    // Find header row (contains "No", "Article (Kode Mix)", "Kode Kecil", "Tier", etc.)
     // Usually row 6, but search for it dynamically
     let headerRow = 0;
     sheet3.eachRow((row, rowNumber) => {
       if (headerRow > 0) return;
       const cellValues = [];
-      for (let c = 1; c <= 6; c++) {
+      for (let c = 1; c <= 8; c++) {
         cellValues.push(String(row.getCell(c).value || '').toLowerCase().trim());
       }
       if (cellValues.some(v => v === 'no') && cellValues.some(v => v.includes('article') || v.includes('artikel'))) {
@@ -116,25 +116,26 @@ export async function POST(request: Request) {
 
     if (headerRow === 0) {
       return NextResponse.json(
-        { success: false, error: 'Could not find header row in Sheet 3. Expected columns: No, Article, Kode Mix, Tier, Box Qty, WH Available' },
+        { success: false, error: 'Could not find header row in Sheet 3. Expected columns: No, Article (Kode Mix), Kode Kecil, Tier, Gender, Series, Box Qty, WH Available' },
         { status: 400 }
       );
     }
 
     // Parse data rows (starting from headerRow + 1)
-    const rawArticles: { rowNum: number; articleName: string; kodeMix: string; tier: number; boxQty: number; whAvailable: string }[] = [];
+    const rawArticles: { rowNum: number; articleName: string; kodeKecil: string; tier: number; boxQty: number; whAvailable: string }[] = [];
 
     for (let r = headerRow + 1; r <= sheet3.rowCount; r++) {
       const row = sheet3.getRow(r);
       const noVal = row.getCell(1).value;
       const articleVal = row.getCell(2).value;
-      const kodeMixVal = row.getCell(3).value;
+      const kodeKecilVal = row.getCell(3).value;
       const tierVal = row.getCell(4).value;
-      const boxQtyVal = row.getCell(5).value;
-      const whAvailVal = row.getCell(6).value;
+      // col 5 = Gender (skip), col 6 = Series (skip)
+      const boxQtyVal = row.getCell(7).value;
+      const whAvailVal = row.getCell(8).value;
 
       // Skip total row or empty rows
-      if (!noVal || !articleVal || !kodeMixVal) continue;
+      if (!noVal || !articleVal || !kodeKecilVal) continue;
       const noStr = String(noVal).trim().toLowerCase();
       if (noStr === 'total' || noStr.includes('total')) continue;
 
@@ -144,7 +145,7 @@ export async function POST(request: Request) {
       rawArticles.push({
         rowNum,
         articleName: String(articleVal).trim(),
-        kodeMix: String(kodeMixVal).trim(),
+        kodeKecil: String(kodeKecilVal).trim(),
         tier: parseInt(String(tierVal), 10) || 0,
         boxQty: parseInt(String(boxQtyVal), 10) || 1,
         whAvailable: String(whAvailVal || '').trim().toUpperCase(),
@@ -158,39 +159,18 @@ export async function POST(request: Request) {
       );
     }
 
-    // --- Cross-reference with DB for entity allocation ---
-    const kodeMixValues = rawArticles.map(a => a.kodeMix);
+    // --- Cross-reference with DB for warehouse stock ---
+    const kodeKecilValues = rawArticles.map(a => a.kodeKecil);
 
-    // Step 1: Get kode_mix → kode mapping from portal.kodemix
-    const { rows: kodemixRows } = await pool.query(
-      `SELECT DISTINCT kode_mix, kode, article
-       FROM portal.kodemix
-       WHERE kode_mix = ANY($1::text[])`,
-      [kodeMixValues]
-    );
-
-    // Build kode_mix → kode[] mapping
-    const kodeMixToKodes: Record<string, { kode: string; article: string }[]> = {};
-    for (const row of kodemixRows) {
-      const km = row.kode_mix as string;
-      if (!kodeMixToKodes[km]) kodeMixToKodes[km] = [];
-      kodeMixToKodes[km].push({
-        kode: row.kode as string,
-        article: row.article as string,
-      });
-    }
-
-    // Step 2: Get all kode values and look up availability
-    const allKodes = kodemixRows.map((r: Record<string, unknown>) => r.kode as string);
-
+    // kode_kecil IS the article code — look up stock directly (no portal.kodemix needed)
     const stockMap: Record<string, { ddd: number; ljbb: number; mbb: number; ubb: number; total: number }> = {};
 
-    if (allKodes.length > 0) {
+    if (kodeKecilValues.length > 0) {
       const { rows: stockRows } = await pool.query(
         `SELECT article_code, ddd_available, ljbb_available, mbb_available, ubb_available, total_available
          FROM ${SCHEMA}.ro_whs_readystock
          WHERE article_code = ANY($1::text[])`,
-        [allKodes]
+        [kodeKecilValues]
       );
 
       for (const s of stockRows) {
@@ -204,27 +184,11 @@ export async function POST(request: Request) {
       }
     }
 
-    // Step 3: Build resolved articles with entity allocation
+    // Build resolved articles with entity allocation
     const parsedArticles: ParsedArticle[] = rawArticles.map(raw => {
-      const kodes = kodeMixToKodes[raw.kodeMix] || [];
-
-      // Find the best kode: one with most stock, or first available
-      let bestKode: string | null = null;
-      let bestStock = { ddd: 0, ljbb: 0, mbb: 0, ubb: 0, total: 0 };
-
-      for (const k of kodes) {
-        const stock = stockMap[k.kode];
-        if (stock && stock.total > bestStock.total) {
-          bestKode = k.kode;
-          bestStock = stock;
-        }
-      }
-
-      // If no kode had stock, just pick the first kode
-      if (!bestKode && kodes.length > 0) {
-        bestKode = kodes[0].kode;
-        bestStock = stockMap[bestKode] || { ddd: 0, ljbb: 0, mbb: 0, ubb: 0, total: 0 };
-      }
+      // kode_kecil = article code directly
+      const articleCode = raw.kodeKecil;
+      const stock = stockMap[articleCode] || { ddd: 0, ljbb: 0, mbb: 0, ubb: 0, total: 0 };
 
       // Auto-allocate entity: DDD first, then LJBB, then MBB, then UBB
       let remaining = raw.boxQty;
@@ -234,61 +198,61 @@ export async function POST(request: Request) {
       let boxesUbb = 0;
       let note = '';
 
-      if (bestStock.total <= 0) {
+      if (stock.total <= 0) {
         // No stock available — mark as unavailable but still allow upload
         note = 'NO STOCK in warehouse';
         boxesDdd = raw.boxQty; // Default to DDD for tracking
       } else {
         // Allocate DDD first
-        const fromDdd = Math.min(remaining, bestStock.ddd);
+        const fromDdd = Math.min(remaining, stock.ddd);
         boxesDdd = fromDdd;
         remaining -= fromDdd;
 
         // Then LJBB
         if (remaining > 0) {
-          const fromLjbb = Math.min(remaining, bestStock.ljbb);
+          const fromLjbb = Math.min(remaining, stock.ljbb);
           boxesLjbb = fromLjbb;
           remaining -= fromLjbb;
         }
 
         // Then MBB
         if (remaining > 0) {
-          const fromMbb = Math.min(remaining, bestStock.mbb);
+          const fromMbb = Math.min(remaining, stock.mbb);
           boxesMbb = fromMbb;
           remaining -= fromMbb;
         }
 
         // Then UBB
         if (remaining > 0) {
-          const fromUbb = Math.min(remaining, bestStock.ubb);
+          const fromUbb = Math.min(remaining, stock.ubb);
           boxesUbb = fromUbb;
           remaining -= fromUbb;
         }
 
         if (remaining > 0) {
-          note = `Insufficient stock: need ${raw.boxQty}, available ${bestStock.total}`;
+          note = `Insufficient stock: need ${raw.boxQty}, available ${stock.total}`;
           // Allocate remainder to DDD for tracking
           boxesDdd += remaining;
         }
       }
 
-      if (!bestKode) {
-        note = 'Kode Mix not found in database';
+      if (!stockMap[articleCode]) {
+        note = 'Article code not found in warehouse stock';
       }
 
       return {
         rowNum: raw.rowNum,
         articleName: raw.articleName,
-        kodeMix: raw.kodeMix,
+        kodeKecil: raw.kodeKecil,
         tier: raw.tier,
         boxQty: raw.boxQty,
         whAvailable: raw.whAvailable,
-        articleCode: bestKode,
-        dddAvailable: bestStock.ddd,
-        ljbbAvailable: bestStock.ljbb,
-        mbbAvailable: bestStock.mbb,
-        ubbAvailable: bestStock.ubb,
-        totalAvailable: bestStock.total,
+        articleCode,
+        dddAvailable: stock.ddd,
+        ljbbAvailable: stock.ljbb,
+        mbbAvailable: stock.mbb,
+        ubbAvailable: stock.ubb,
+        totalAvailable: stock.total,
         boxesDdd,
         boxesLjbb,
         boxesMbb,

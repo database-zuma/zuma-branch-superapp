@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 interface ParsedArticle {
   rowNum: number;
   articleName: string;
-  kodeMix: string;
+  kodeKecil: string;
   tier: number;
   boxQty: number;
   whAvailable: string;
@@ -299,7 +299,7 @@ export default function ROUpload({ onUploadComplete }: ROUploadProps) {
                   <span className="text-xs text-gray-400 w-5 text-center">{article.rowNum}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-900 truncate">{article.articleName}</p>
-                    <p className="text-xs text-gray-400 font-mono">{article.kodeMix}</p>
+                    <p className="text-xs text-gray-400 font-mono">{article.kodeKecil}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">T{article.tier}</span>
