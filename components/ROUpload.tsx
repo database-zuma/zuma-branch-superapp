@@ -23,6 +23,7 @@ interface ParsedArticle {
   boxesMbb: number;
   boxesUbb: number;
   allocationNote: string;
+  stockStatus: 'available' | 'insufficient' | 'no_stock' | 'not_found';
 }
 
 interface ParseResult {
@@ -32,6 +33,7 @@ interface ParseResult {
   totalBoxes: number;
   warningCount: number;
   unmappedCount: number;
+  noStockCount: number;
   articles: ParsedArticle[];
 }
 
@@ -254,10 +256,10 @@ export default function ROUpload({ onUploadComplete }: ROUploadProps) {
             </div>
             <div className={cn(
               "rounded-lg p-2 text-center",
-              parseResult.warningCount > 0 ? "bg-yellow-500/30" : "bg-white/10"
+              (parseResult.noStockCount ?? 0) > 0 ? "bg-red-500/30" : parseResult.warningCount > 0 ? "bg-yellow-500/30" : "bg-white/10"
             )}>
               <p className="text-xl font-bold">{parseResult.warningCount}</p>
-              <p className="text-xs opacity-80">Warnings</p>
+              <p className="text-xs opacity-80">{(parseResult.noStockCount ?? 0) > 0 ? `${parseResult.noStockCount} No Stock` : 'Warnings'}</p>
             </div>
           </div>
         </div>
@@ -281,7 +283,8 @@ export default function ROUpload({ onUploadComplete }: ROUploadProps) {
         {/* Article list */}
         <div className="space-y-2 max-h-[400px] overflow-y-auto">
           {displayArticles.map((article, idx) => {
-            const hasWarning = article.allocationNote !== '';
+            const hasNoStock = article.stockStatus === 'no_stock' || article.stockStatus === 'not_found';
+            const hasWarning = article.allocationNote !== '' && !hasNoStock;
             const isExpanded = expandedRows.has(idx);
 
             return (
@@ -289,7 +292,7 @@ export default function ROUpload({ onUploadComplete }: ROUploadProps) {
                 key={idx}
                 className={cn(
                   "border rounded-lg overflow-hidden",
-                  hasWarning ? "border-yellow-200 bg-yellow-50/50" : "border-gray-100"
+                  hasNoStock ? "border-red-200 bg-red-50/50" : hasWarning ? "border-yellow-200 bg-yellow-50/50" : "border-gray-100"
                 )}
               >
                 <div
@@ -304,6 +307,7 @@ export default function ROUpload({ onUploadComplete }: ROUploadProps) {
                   <div className="flex items-center gap-2">
                     <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">T{article.tier}</span>
                     <span className="text-sm font-medium">{article.boxQty}box</span>
+                    {hasNoStock && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
                     {hasWarning && <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" />}
                     {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />}
                   </div>
@@ -344,6 +348,12 @@ export default function ROUpload({ onUploadComplete }: ROUploadProps) {
                     {article.articleCode && (
                       <p className="text-xs text-gray-400">
                         Mapped to: <span className="font-mono">{article.articleCode}</span>
+                      </p>
+                    )}
+                    {hasNoStock && (
+                      <p className="text-xs text-red-600 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" />
+                        {article.allocationNote}
                       </p>
                     )}
                     {hasWarning && (

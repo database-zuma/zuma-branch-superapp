@@ -23,6 +23,7 @@ interface ParsedArticle {
   boxesMbb: number;
   boxesUbb: number;
   allocationNote: string;
+  stockStatus: 'available' | 'insufficient' | 'no_stock' | 'not_found';
 }
 
 /**
@@ -197,47 +198,45 @@ export async function POST(request: Request) {
       let boxesMbb = 0;
       let boxesUbb = 0;
       let note = '';
+      let stockStatus: 'available' | 'insufficient' | 'no_stock' | 'not_found' = 'available';
 
-      if (stock.total <= 0) {
-        // No stock available — mark as unavailable but still allow upload
-        note = 'NO STOCK in warehouse';
-        boxesDdd = raw.boxQty; // Default to DDD for tracking
+      if (!stockMap[articleCode]) {
+        stockStatus = 'not_found';
+        note = 'Article not found in warehouse stock';
+      } else if (stock.total <= 0) {
+        stockStatus = 'no_stock';
+        note = `NO STOCK (Total: ${stock.total}, DDD: ${stock.ddd}, LJBB: ${stock.ljbb})`;
       } else {
-        // Allocate DDD first
-        const fromDdd = Math.min(remaining, stock.ddd);
+        // Allocate DDD first (clamp negatives to 0)
+        const fromDdd = Math.min(remaining, Math.max(0, stock.ddd));
         boxesDdd = fromDdd;
         remaining -= fromDdd;
 
         // Then LJBB
         if (remaining > 0) {
-          const fromLjbb = Math.min(remaining, stock.ljbb);
+          const fromLjbb = Math.min(remaining, Math.max(0, stock.ljbb));
           boxesLjbb = fromLjbb;
           remaining -= fromLjbb;
         }
 
         // Then MBB
         if (remaining > 0) {
-          const fromMbb = Math.min(remaining, stock.mbb);
+          const fromMbb = Math.min(remaining, Math.max(0, stock.mbb));
           boxesMbb = fromMbb;
           remaining -= fromMbb;
         }
 
         // Then UBB
         if (remaining > 0) {
-          const fromUbb = Math.min(remaining, stock.ubb);
+          const fromUbb = Math.min(remaining, Math.max(0, stock.ubb));
           boxesUbb = fromUbb;
           remaining -= fromUbb;
         }
 
         if (remaining > 0) {
-          note = `Insufficient stock: need ${raw.boxQty}, available ${stock.total}`;
-          // Allocate remainder to DDD for tracking
-          boxesDdd += remaining;
+          stockStatus = 'insufficient';
+          note = `Partial: need ${raw.boxQty}, allocated ${raw.boxQty - remaining} (avail: ${stock.total})`;
         }
-      }
-
-      if (!stockMap[articleCode]) {
-        note = 'Article code not found in warehouse stock';
       }
 
       return {
@@ -258,12 +257,14 @@ export async function POST(request: Request) {
         boxesMbb,
         boxesUbb,
         allocationNote: note,
+        stockStatus,
       };
     });
 
     const totalBoxes = parsedArticles.reduce((sum, a) => sum + a.boxQty, 0);
     const withWarnings = parsedArticles.filter(a => a.allocationNote !== '');
     const unmapped = parsedArticles.filter(a => !a.articleCode);
+    const noStockCount = parsedArticles.filter(a => a.stockStatus === 'no_stock' || a.stockStatus === 'not_found').length;
 
     return NextResponse.json({
       success: true,
@@ -274,6 +275,7 @@ export async function POST(request: Request) {
         totalBoxes,
         warningCount: withWarnings.length,
         unmappedCount: unmapped.length,
+        noStockCount,
         articles: parsedArticles,
       },
     });

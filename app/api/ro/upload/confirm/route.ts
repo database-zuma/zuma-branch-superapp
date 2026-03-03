@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     }
 
     // Filter out articles without article_code (unmapped)
-    const validArticles = articles.filter(a => a.articleCode);
+    const validArticles = articles.filter(a => a.articleCode && (a.boxesDdd + a.boxesLjbb + a.boxesMbb + a.boxesUbb) > 0);
     if (validArticles.length === 0) {
       return NextResponse.json(
         { success: false, error: 'No valid articles to insert (all unmapped)' },
