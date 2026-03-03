@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ShoppingCart, RefreshCw, X, Download, Package, Upload } from 'lucide-react';
+import { ShoppingCart, RefreshCw, X, Download, Package, Upload, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import SOPBGenerator from './SOPBGenerator';
 import ROProcess from './ROProcess';
@@ -230,6 +230,37 @@ function DashboardContent() {
     toast.success('CSV downloaded successfully');
   };
 
+  const handleDeleteRO = async (roId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent row click
+    
+    if (!confirm(`Are you sure you want to delete RO ${roId}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/ro/process/delete?roId=${roId}`, {
+        method: 'DELETE',
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok && result.success) {
+        toast.success(`RO ${roId} deleted successfully`);
+        fetchDashboardData();
+        // If the modal is open for this RO, close it
+        if (selectedRO && selectedRO.id === roId) {
+          setShowDetailModal(false);
+          setSelectedRO(null);
+        }
+      } else {
+        toast.error(result.error || 'Failed to delete RO');
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast.error('Failed to delete RO');
+    }
+  };
+
   useEffect(() => {
     fetchDashboardData();
   }, []);
@@ -351,7 +382,16 @@ function DashboardContent() {
                     <td className="py-3 px-4 font-mono text-gray-700 text-xs">{ro.id}</td>
                     <td className="py-3 px-4 text-gray-900">{ro.store}</td>
                     <td className="py-3 px-4 text-center text-gray-700">{ro.box}</td>
-                    <td className="py-3 px-4 text-right">{getStatusBadge(ro.status)}</td>
+                    <td className="py-3 px-4 text-right flex items-center justify-end gap-2">
+                      {getStatusBadge(ro.status)}
+                      <button
+                        onClick={(e) => handleDeleteRO(ro.id, e)}
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete RO"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -379,6 +419,14 @@ function DashboardContent() {
                   >
                     <Download className="w-4 h-4" />
                     <span className="hidden sm:inline">CSV</span>
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteRO(selectedRO.id, e)}
+                    className="p-2 hover:bg-white/20 rounded-lg transition-colors flex items-center gap-1 text-xs text-red-100 hover:text-red-200"
+                    title="Delete RO"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span className="hidden sm:inline">Delete</span>
                   </button>
                   <button
                     onClick={() => {
