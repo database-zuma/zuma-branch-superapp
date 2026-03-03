@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ShoppingCart, RefreshCw, X, Download, Package, Upload, Trash2 } from 'lucide-react';
+import { ShoppingCart, RefreshCw, X, Download, Package, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import SOPBGenerator from './SOPBGenerator';
 import ROProcess from './ROProcess';
@@ -75,7 +75,7 @@ export default function ROPage() {
 
   return (
     <div className="h-full">
-      {}
+      {/* Sub-header navigation */}
       <div className="bg-white px-4 py-3 sticky top-0 z-10">
         <div className="flex items-center justify-center">
           {subTabs.map((tab, index) => {
@@ -103,7 +103,7 @@ export default function ROPage() {
         </div>
       </div>
 
-      {}
+      {/* Content Area */}
       <div className="px-4 pb-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
         {renderSubContent()}
       </div>
@@ -230,36 +230,7 @@ function DashboardContent() {
     toast.success('CSV downloaded successfully');
   };
 
-  const handleDeleteRO = async (roId: string, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent row click
-    
-    if (!confirm(`Are you sure you want to delete RO ${roId}? This action cannot be undone.`)) {
-      return;
-    }
-
-    try {
-      const response = await fetch(`/api/ro/process/delete?roId=${roId}`, {
-        method: 'DELETE',
-      });
-      
-      const result = await response.json();
-      
-      if (response.ok && result.success) {
-        toast.success(`RO ${roId} deleted successfully`);
-        fetchDashboardData();
-        // If the modal is open for this RO, close it
-        if (selectedRO && selectedRO.id === roId) {
-          setShowDetailModal(false);
-          setSelectedRO(null);
-        }
-      } else {
-        toast.error(result.error || 'Failed to delete RO');
-      }
-    } catch (error) {
-      console.error('Delete error:', error);
-      toast.error('Failed to delete RO');
-    }
-  };
+  // Removed handleDeleteRO from dashboard - now in ROProcess page only
 
   useEffect(() => {
     fetchDashboardData();
@@ -384,13 +355,6 @@ function DashboardContent() {
                     <td className="py-3 px-4 text-center text-gray-700">{ro.box}</td>
                     <td className="py-3 px-4 text-right flex items-center justify-end gap-2">
                       {getStatusBadge(ro.status)}
-                      <button
-                        onClick={(e) => handleDeleteRO(ro.id, e)}
-                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete RO"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </td>
                   </tr>
                 ))
@@ -400,11 +364,11 @@ function DashboardContent() {
         </div>
       </div>
 
-      {}
+      {/* Detail Modal */}
       {showDetailModal && selectedRO && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full max-w-lg max-h-[85vh] rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col">
-            {}
+            {/* Modal Header */}
             <div className="bg-[#0D3B2E] p-4 text-white">
               <div className="flex items-start justify-between">
                 <div>
@@ -421,14 +385,6 @@ function DashboardContent() {
                     <span className="hidden sm:inline">CSV</span>
                   </button>
                   <button
-                    onClick={(e) => handleDeleteRO(selectedRO.id, e)}
-                    className="p-2 hover:bg-white/20 rounded-lg transition-colors flex items-center gap-1 text-xs text-red-100 hover:text-red-200"
-                    title="Delete RO"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span className="hidden sm:inline">Delete</span>
-                  </button>
-                  <button
                     onClick={() => {
                       setShowDetailModal(false);
                       setSelectedRO(null);
@@ -441,7 +397,7 @@ function DashboardContent() {
               </div>
             </div>
 
-            {}
+            {/* Modal Info */}
             <div className="p-4 bg-gray-50 border-b border-gray-100 space-y-2">
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>
@@ -469,7 +425,7 @@ function DashboardContent() {
               )}
             </div>
 
-            {}
+            {/* Articles List */}
             <div className="flex-1 overflow-y-auto">
               <div className="p-4">
                 <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
@@ -517,7 +473,7 @@ function DashboardContent() {
               </div>
             </div>
 
-            {}
+            {/* Modal Footer */}
             <div className="p-4 border-t border-gray-100 bg-gray-50">
               <button
                 onClick={() => {
@@ -533,7 +489,7 @@ function DashboardContent() {
         </div>
       )}
 
-      {}
+      {/* Loading Overlay */}
       {isLoadingDetail && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center">
           <div className="bg-white rounded-xl p-4 flex items-center gap-3">
@@ -545,5 +501,3 @@ function DashboardContent() {
     </div>
   );
 }
-
-

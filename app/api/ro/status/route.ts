@@ -27,7 +27,7 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   'ARRIVED': ['COMPLETED', 'CANCELLED'],
   'BANDING_SENT': ['ARRIVED', 'COMPLETED', 'CANCELLED'],
   'COMPLETED': [],
-  'CANCELLED': [],
+  'CANCELLED': []
 };
 
 export async function PATCH(request: Request) {
@@ -76,6 +76,29 @@ export async function PATCH(request: Request) {
         { success: false, error: `Cannot transition from ${currentStatus} to ${status}. Allowed: ${allowedNextStatuses.join(', ') || 'none'}` },
         { status: 400 }
       );
+    }
+
+    // CHECK: Guardrail for 0 quantity items before Approval
+    if (status === 'APPROVED' && currentStatus === 'QUEUE') {
+      const { rows: zeroItems } = await pool.query(
+        `SELECT article_code, 
+                (boxes_allocated_ddd + boxes_allocated_ljbb + boxes_allocated_mbb + boxes_allocated_ubb) as total_qty
+         FROM ${SCHEMA}.ro_process 
+         WHERE ro_id = $1`,
+        [roId]
+      );
+
+      const invalidItems = zeroItems.filter(item => Number(item.total_qty) <= 0);
+      
+      if (invalidItems.length > 0) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: `Cannot approve: Found ${invalidItems.length} items with 0 quantity (${invalidItems.map((i: { article_code: string }) => i.article_code).join(', ')}). Please remove them or update quantity.`
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const { rows: data } = await pool.query(

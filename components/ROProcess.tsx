@@ -10,7 +10,9 @@ import {
   ChevronRight,
   RefreshCw,
   Database,
-  Download
+  Download,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -145,6 +147,66 @@ export default function ROProcess() {
     await fetchROData();
     setIsLoading(false);
   }, []);
+
+  const handleDeleteRO = async () => {
+    if (!selectedRO) return;
+    
+    if (!confirm(`Are you sure you want to delete RO ${selectedRO.id}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const response = await fetch(`/api/ro/process/delete?roId=${selectedRO.id}`, {
+        method: 'DELETE',
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok && result.success) {
+        toast.success(`RO ${selectedRO.id} deleted successfully`);
+        setSelectedRO(null);
+        setViewArticles(false);
+        fetchROData();
+      } else {
+        toast.error(result.error || 'Failed to delete RO');
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast.error('Failed to delete RO');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteItem = async (articleCode: string) => {
+    if (!selectedRO) return;
+    
+    if (!confirm(`Remove article ${articleCode} from this RO?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/ro/articles/delete?roId=${selectedRO.id}&articleCode=${articleCode}`, {
+        method: 'DELETE',
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok && result.success) {
+        toast.success(`Article ${articleCode} removed`);
+        // Refresh local state without full reload if possible, or just fetchROData
+        const freshData = await fetchROData();
+        const updatedRO = freshData.find(r => r.id === selectedRO.id);
+        if (updatedRO) setSelectedRO(updatedRO);
+      } else {
+        toast.error(result.error || 'Failed to remove article');
+      }
+    } catch (error) {
+      console.error('Delete item error:', error);
+      toast.error('Failed to remove article');
+    }
+  };
 
   const renderROList = () => (
     <div className="space-y-3">
@@ -293,6 +355,15 @@ export default function ROProcess() {
               <span className="px-2 py-1 bg-white/20 rounded text-xs">UBB: {selectedRO.ubbBoxes} boxes</span>
             )}
           </div>
+          {/* Delete RO Button */}
+          {isEditable && (
+            <button
+              onClick={handleDeleteRO}
+              className="mt-3 w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-100 rounded-lg text-xs flex items-center justify-center gap-2 transition-colors"
+            >
+              <Trash2 className="w-3 h-3" /> Delete this RO
+            </button>
+          )}
         </div>
 
         {selectedRO.currentStatus === 'DNPB_PROCESS' && (
@@ -756,6 +827,7 @@ export default function ROProcess() {
                   <th className="py-3 px-2 font-medium text-center text-purple-600">LJBB</th>
                   <th className="py-3 px-2 font-medium text-center text-orange-600">MBB</th>
                   <th className="py-3 px-2 font-medium text-center text-teal-600">UBB</th>
+                  <th className="py-3 px-2 font-medium text-center w-10"></th>
                 </tr>
               </thead>
               <tbody>
@@ -813,6 +885,17 @@ export default function ROProcess() {
                       <td className="py-2 px-1 text-center">
                         <span className="w-10 h-6 text-center text-teal-700 font-medium text-xs bg-teal-50 border border-teal-200 rounded flex items-center justify-center mx-auto">{article.ubbBoxes}</span>
                       </td>
+                      <td className="py-2 px-1 text-center">
+                        {isEditable && (
+                          <button
+                            onClick={() => handleDeleteItem(article.kodeArtikel)}
+                            className="p-1 text-gray-400 hover:text-red-500 rounded transition-colors"
+                            title="Remove item"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -831,6 +914,7 @@ export default function ROProcess() {
                       <td className="py-3 px-2 text-center text-purple-700">{totals.ljbb}</td>
                       <td className="py-3 px-2 text-center text-orange-700">{totals.mbb}</td>
                       <td className="py-3 px-2 text-center text-teal-700">{totals.ubb}</td>
+                      <td className="py-3 px-2"></td>
                     </tr>
                   );
                 })()}
