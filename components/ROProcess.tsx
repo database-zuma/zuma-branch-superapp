@@ -12,7 +12,9 @@ import {
   Database,
   Download,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Plus,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -71,6 +73,8 @@ export default function ROProcess() {
   const [searchQuery, setSearchQuery] = useState('');
   const [editedArticles, setEditedArticles] = useState<Record<string, { ddd: number; ljbb: number }>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [showAddArticle, setShowAddArticle] = useState(false);
+  const [newArticle, setNewArticle] = useState({ kodeArtikel: '', namaArtikel: '', dddBoxes: 0, ljbbBoxes: 0 });
 
   useEffect(() => {
     fetchROData();
@@ -205,6 +209,34 @@ export default function ROProcess() {
     } catch (error) {
       console.error('Delete item error:', error);
       toast.error('Failed to remove article');
+    }
+  };
+  const handleAddArticle = async () => {
+    if (!selectedRO) return;
+    if (!newArticle.kodeArtikel) {
+      toast.error('Article code is required');
+      return;
+    }
+    try {
+      const response = await fetch('/api/ro/articles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roId: selectedRO.id, articleCode: newArticle.kodeArtikel, namaArtikel: newArticle.namaArtikel, dddBoxes: newArticle.dddBoxes, ljbbBoxes: newArticle.ljbbBoxes })
+      });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        toast.success(`Article ${newArticle.kodeArtikel} added`);
+        setShowAddArticle(false);
+        setNewArticle({ kodeArtikel: '', namaArtikel: '', dddBoxes: 0, ljbbBoxes: 0 });
+        const freshData = await fetchROData();
+        const updatedRO = freshData.find(r => r.id === selectedRO.id);
+        if (updatedRO) setSelectedRO(updatedRO);
+      } else {
+        toast.error(result.error || 'Failed to add article');
+      }
+    } catch (error) {
+      console.error('Add article error:', error);
+      toast.error('Failed to add article');
     }
   };
 
@@ -871,7 +903,11 @@ export default function ROProcess() {
                   <th className="py-3 px-2 font-medium text-center text-purple-600">LJBB</th>
                   <th className="py-3 px-2 font-medium text-center text-orange-600">MBB</th>
                   <th className="py-3 px-2 font-medium text-center text-teal-600">UBB</th>
-                  <th className="py-3 px-2 font-medium text-center w-10"></th>
+                  <th className="py-3 px-2 font-medium text-center w-20">
+                    <button onClick={() => setShowAddArticle(true)} className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 text-xs font-medium">
+                      <Plus className="w-3 h-3" /> Add
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -930,15 +966,13 @@ export default function ROProcess() {
                         <span className="w-10 h-6 text-center text-teal-700 font-medium text-xs bg-teal-50 border border-teal-200 rounded flex items-center justify-center mx-auto">{article.ubbBoxes}</span>
                       </td>
                       <td className="py-2 px-1 text-center">
-                        {isEditable && (
-                          <button
-                            onClick={() => handleDeleteItem(article.kodeArtikel)}
-                            className="p-1 text-gray-400 hover:text-red-500 rounded transition-colors"
-                            title="Remove item"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => handleDeleteItem(article.kodeArtikel)}
+                          className="p-1 text-gray-400 hover:text-red-500 rounded transition-colors"
+                          title="Remove item"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </td>
                     </tr>
                   );
@@ -969,6 +1003,44 @@ export default function ROProcess() {
       </div>
     );
   };
+
+  // Add Article Modal
+  if (showAddArticle) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+          <div className="flex items-center justify-between p-4 border-b">
+            <h3 className="font-semibold text-gray-900">Add Article</h3>
+            <button onClick={() => setShowAddArticle(false)} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5 text-gray-500" /></button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Article Code *</label>
+              <input type="text" value={newArticle.kodeArtikel} onChange={(e) => setNewArticle({ ...newArticle, kodeArtikel: e.target.value })} placeholder="e.g., ZUMA-001" className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Article Name</label>
+              <input type="text" value={newArticle.namaArtikel} onChange={(e) => setNewArticle({ ...newArticle, namaArtikel: e.target.value })} placeholder="e.g., Sandal Zuma Hitam" className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">DDD Boxes</label>
+                <input type="number" min="0" value={newArticle.dddBoxes} onChange={(e) => setNewArticle({ ...newArticle, dddBoxes: parseInt(e.target.value) || 0 })} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">LJBB Boxes</label>
+                <input type="number" min="0" value={newArticle.ljbbBoxes} onChange={(e) => setNewArticle({ ...newArticle, ljbbBoxes: parseInt(e.target.value) || 0 })} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setShowAddArticle(false)} className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+              <button onClick={handleAddArticle} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Add Article</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
