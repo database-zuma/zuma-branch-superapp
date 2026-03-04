@@ -697,9 +697,10 @@ POST /api/ro/submit
 
 **Validation Rules**:
 1. **Real-time**: Show warning badge if requested > available
-2. **On Submit**: BLOCK submission if any article has `requested > available`
-3. **Error Message**: "Only X boxes available for [article_code]. Please reduce quantity."
-4. **No Auto-adjust**: User must manually fix, system doesn't auto-correct
+2. **On Submit**: ALLOW submission even if 0 stock (Status: QUEUE)
+3. **On Approval**: BLOCK approval if any article has 0 qty
+4. **Error Message**: "Cannot approve: Found items with 0 quantity..."
+5. **Workflow**: Upload -> Queue (0 qty) -> User Edits/Deletes -> Approve
 
 **Stock Source**:
 - Both AUTO and +Add use `ro_whs_readystock` VIEW

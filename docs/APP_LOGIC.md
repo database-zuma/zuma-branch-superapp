@@ -347,9 +347,11 @@ CANNOT DO (in zuma-ro-pwa):
 Parse logic:
 1. Sheet 3 "Daftar RO Box" → extract kode_mix + qty
 2. Map kode_mix → article_code via portal.kodemix
-3. Check ro_whs_readystock for entity availability
+3. Check ro_whs_readystock for entity availability (View clamps negative stock to 0)
 4. Allocate: DDD → LJBB → MBB → UBB (waterfall)
-```
+5. **0 Qty Handling**: Articles with 0 stock/allocation are inserted with status 'QUEUE' (0 boxes)
+   - They appear in RO Process list as warnings
+   - Must be removed or edited before Approval
 
 ### Legacy Method: Manual GUI Submit
 
@@ -449,11 +451,16 @@ Layer 2: Actions
 Layer 3: Article Breakdown
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ Article Code | Name | Box | DDD | LJBB | Actions                        │
-│ M1AMV102     | Air  | 12  | [2] | [1]  | [Save] [Download CSV]          │
+│ M1AMV102     | Air  | 12  | [2] | [1]  | [Save] [Download CSV] [Trash]  │
 └─────────────────────────────────────────────────────────────────────────┘
 
 Editable Statuses: QUEUE, APPROVED, PICKING, PICK_VERIFIED, DNPB_PROCESS
 Readonly Statuses: READY_TO_SHIP, IN_DELIVERY, ARRIVED, COMPLETED
+
+**Guardrails:**
+- **Approval Block**: Cannot transition QUEUE → APPROVED if any item has 0 total boxes.
+  - Error: "Cannot approve: Found items with 0 quantity..."
+  - Fix: User must Edit Qty (>0) or Delete Item.
 ```
 
 ---

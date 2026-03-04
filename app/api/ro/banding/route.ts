@@ -67,34 +67,55 @@ export async function POST(request: Request) {
     } else {
       // CONFIRMED action
       const { rows: receiptData } = await pool.query(
-        `SELECT article_code, fisik, pairs_per_box, boxes_ddd, boxes_ljbb
+        `SELECT article_code, fisik, pairs_per_box, boxes_ddd, boxes_ljbb, boxes_mbb, boxes_ubb
          FROM ${SCHEMA}.ro_receipt
          WHERE ro_id = $1`,
         [ro_id]
       );
 
-      for (const item of receiptData || []) {
-        const fisikBoxes = Math.ceil(item.fisik / item.pairs_per_box);
+      // Group by article_code and sum fisik across all sizes
+      const articleMap = new Map<string, { totalFisik: number; pairsPerBox: number; boxesDdd: number; boxesLjbb: number; boxesMbb: number; boxesUbb: number }>();
 
-        const totalOriginalBoxes = item.boxes_ddd + item.boxes_ljbb;
-        let dddBoxes = 0;
-        let ljbbBoxes = 0;
+      for (const item of receiptData || []) {
+        const existing = articleMap.get(item.article_code);
+        if (existing) {
+          existing.totalFisik += item.fisik;
+        } else {
+          articleMap.set(item.article_code, {
+            totalFisik: item.fisik,
+            pairsPerBox: item.pairs_per_box,
+            boxesDdd: item.boxes_ddd || 0,
+            boxesLjbb: item.boxes_ljbb || 0,
+            boxesMbb: item.boxes_mbb || 0,
+            boxesUbb: item.boxes_ubb || 0,
+          });
+        }
+      }
+
+      // Calculate and update ONCE per article
+      for (const [articleCode, data] of articleMap.entries()) {
+        const fisikBoxes = Math.ceil(data.totalFisik / data.pairsPerBox);
+        const totalOriginalBoxes = data.boxesDdd + data.boxesLjbb + data.boxesMbb + data.boxesUbb;
+
+        let dddBoxes = 0, ljbbBoxes = 0, mbbBoxes = 0, ubbBoxes = 0;
 
         if (totalOriginalBoxes > 0) {
-          const dddRatio = item.boxes_ddd / totalOriginalBoxes;
-          dddBoxes = Math.round(fisikBoxes * dddRatio);
-          ljbbBoxes = fisikBoxes - dddBoxes;
+          dddBoxes = Math.round(fisikBoxes * (data.boxesDdd / totalOriginalBoxes));
+          ljbbBoxes = Math.round(fisikBoxes * (data.boxesLjbb / totalOriginalBoxes));
+          mbbBoxes = Math.round(fisikBoxes * (data.boxesMbb / totalOriginalBoxes));
+          ubbBoxes = fisikBoxes - dddBoxes - ljbbBoxes - mbbBoxes;
         }
 
         try {
           await pool.query(
             `UPDATE ${SCHEMA}.ro_process
-             SET status = $1, boxes_allocated_ddd = $2, boxes_allocated_ljbb = $3, updated_at = $4
-             WHERE ro_id = $5 AND article_code = $6`,
-            ['COMPLETED', dddBoxes, ljbbBoxes, new Date().toISOString(), ro_id, item.article_code]
+             SET status = $1, boxes_allocated_ddd = $2, boxes_allocated_ljbb = $3,
+                 boxes_allocated_mbb = $4, boxes_allocated_ubb = $5, updated_at = $6
+             WHERE ro_id = $7 AND article_code = $8`,
+            ['COMPLETED', dddBoxes, ljbbBoxes, mbbBoxes, ubbBoxes, new Date().toISOString(), ro_id, articleCode]
           );
         } catch (processUpdateErr) {
-          console.error('Process update error:', processUpdateErr);
+          console.error('Process update error for article', articleCode, ':', processUpdateErr);
         }
       }
 

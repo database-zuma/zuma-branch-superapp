@@ -515,7 +515,51 @@ export default function ROProcess() {
           >
             <Package className="w-4 h-4" /> View Articles
           </button>
-          <button 
+          {selectedRO.currentStatus === 'IN_DELIVERY' && (
+            <button
+              onClick={async () => {
+                if (!confirm('Mark this RO as arrived at store?')) return;
+                
+                setIsLoading(true);
+                try {
+                  const res = await fetch('/api/ro/status', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ roId: selectedRO.id, status: 'ARRIVED' })
+                  });
+                  
+                  const result = await res.json();
+                  
+                  if (result.success) {
+                    setSelectedRO({
+                      ...selectedRO,
+                      currentStatus: 'ARRIVED'
+                    });
+                    fetchROData();
+                    toast.success('RO marked as arrived');
+                  } else {
+                    toast.error(result.error || 'Failed to mark as arrived');
+                  }
+                } catch (error) {
+                  toast.error('Failed to mark as arrived');
+                  console.error(error);
+                } finally {
+                  setIsLoading(false);
+                }
+              }}
+              disabled={isLoading}
+              className="flex-1 bg-green-500 text-white py-3 rounded-xl font-medium hover:bg-green-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Truck className="w-4 h-4" /> Mark Arrived
+                </>
+              )}
+            </button>
+          )}
+          <button
             onClick={async () => {
               const currentIndex = statusFlow.findIndex(s => s.id === selectedRO.currentStatus);
               if (currentIndex >= statusFlow.length - 1) {
