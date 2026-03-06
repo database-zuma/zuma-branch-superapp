@@ -74,78 +74,92 @@ export async function POST(request: Request) {
       );
     }
 
-    const { rows: roIdResult } = await pool.query(
-      `SELECT ${SCHEMA}.generate_ro_id() as ro_id`
-    );
+    // Bug #15: Wrap RO ID generation + INSERT in a transaction to prevent race conditions
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    if (!roIdResult || roIdResult.length === 0 || !roIdResult[0].ro_id) {
-      console.error('Error generating RO ID');
-      return NextResponse.json(
-        { success: false, error: 'Failed to generate RO ID' },
-        { status: 500 }
+      const { rows: roIdResult } = await client.query(
+        `SELECT ${SCHEMA}.generate_ro_id() as ro_id`
       );
+
+      if (!roIdResult || roIdResult.length === 0 || !roIdResult[0].ro_id) {
+        await client.query('ROLLBACK');
+        console.error('Error generating RO ID');
+        return NextResponse.json(
+          { success: false, error: 'Failed to generate RO ID' },
+          { status: 500 }
+        );
+      }
+
+      const roId = roIdResult[0].ro_id as string;
+
+      // Build bulk INSERT
+      const values: unknown[] = [];
+      const valuePlaceholders: string[] = [];
+      let paramIndex = 1;
+
+      for (const article of articles) {
+        const boxesRequested = article.boxes
+          ? article.boxes
+          : (article.boxes_ddd || 0) + (article.boxes_ljbb || 0) + (article.boxes_mbb || 0) + (article.boxes_ubb || 0);
+
+        valuePlaceholders.push(
+          `($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
+        );
+        values.push(
+          roId,
+          article.code,
+          article.name,
+          boxesRequested,
+          article.boxes_ddd || 0,
+          article.boxes_ljbb || 0,
+          article.boxes_mbb || 0,
+          article.boxes_ubb || 0,
+          'QUEUE',
+          store_name,
+          notes || null
+        );
+      }
+
+      const { rows: data } = await client.query(
+        `INSERT INTO ${SCHEMA}.ro_process
+          (ro_id, article_code, article_name, boxes_requested, boxes_allocated_ddd, boxes_allocated_ljbb, boxes_allocated_mbb, boxes_allocated_ubb, status, store_name, notes)
+         VALUES ${valuePlaceholders.join(', ')}
+         RETURNING *`,
+        values
+      );
+
+      await client.query('COMMIT');
+
+      if (!data || data.length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'Failed to insert RO' },
+          { status: 500 }
+        );
+      }
+
+      const totalBoxes = articles.reduce((sum: number, a: Record<string, number>) => {
+        if (a.boxes) return sum + a.boxes;
+        return sum + (a.boxes_ddd || 0) + (a.boxes_ljbb || 0) + (a.boxes_mbb || 0) + (a.boxes_ubb || 0);
+      }, 0);
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          ro_id: roId,
+          store_name,
+          articles_count: articles.length,
+          total_boxes: totalBoxes,
+          status: 'QUEUE',
+        },
+      });
+    } catch (txError) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txError;
+    } finally {
+      client.release();
     }
-
-    const roId = roIdResult[0].ro_id as string;
-
-    // Build bulk INSERT
-    const values: unknown[] = [];
-    const valuePlaceholders: string[] = [];
-    let paramIndex = 1;
-
-    for (const article of articles) {
-      const boxesRequested = article.boxes
-        ? article.boxes
-        : (article.boxes_ddd || 0) + (article.boxes_ljbb || 0) + (article.boxes_mbb || 0) + (article.boxes_ubb || 0);
-
-      valuePlaceholders.push(
-        `($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
-      );
-      values.push(
-        roId,
-        article.code,
-        article.name,
-        boxesRequested,
-        article.boxes_ddd || 0,
-        article.boxes_ljbb || 0,
-        article.boxes_mbb || 0,
-        article.boxes_ubb || 0,
-        'QUEUE',
-        store_name,
-        notes || null
-      );
-    }
-
-    const { rows: data } = await pool.query(
-      `INSERT INTO ${SCHEMA}.ro_process
-        (ro_id, article_code, article_name, boxes_requested, boxes_allocated_ddd, boxes_allocated_ljbb, boxes_allocated_mbb, boxes_allocated_ubb, status, store_name, notes)
-       VALUES ${valuePlaceholders.join(', ')}
-       RETURNING *`,
-      values
-    );
-
-    if (!data || data.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Failed to insert RO' },
-        { status: 500 }
-      );
-    }
-
-    const totalBoxes = articles.reduce((sum: number, a: Record<string, number>) => {
-      if (a.boxes) return sum + a.boxes;
-      return sum + (a.boxes_ddd || 0) + (a.boxes_ljbb || 0) + (a.boxes_mbb || 0) + (a.boxes_ubb || 0);
-    }, 0);
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        ro_id: roId,
-        store_name,
-        articles_count: articles.length,
-        total_boxes: totalBoxes,
-        status: 'QUEUE',
-      },
-    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error in submit RO API:', error);

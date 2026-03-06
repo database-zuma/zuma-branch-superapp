@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { pool } from '@/lib/db';
+import { pool, SCHEMA } from '@/lib/db';
 
 export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -13,7 +13,7 @@ export async function DELETE(request: Request) {
     // Delete all rows with this ro_id
     // This assumes ro_id is consistently populated for all items in the batch
     const result = await pool.query(
-      'DELETE FROM branch_super_app_clawdbot.ro_process WHERE ro_id = $1',
+      `DELETE FROM ${SCHEMA}.ro_process WHERE ro_id = $1`,
       [roId]
     );
 
