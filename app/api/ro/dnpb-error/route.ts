@@ -22,7 +22,7 @@ export async function GET() {
     }
 
     const { rows: roList } = await pool.query(
-      'SELECT * FROM public.get_confirmed_ro_list()'
+      `SELECT * FROM ${SCHEMA}.get_confirmed_ro_list()`
     );
 
     const data = await Promise.all(

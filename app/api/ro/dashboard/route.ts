@@ -51,7 +51,7 @@ export async function GET() {
 
     const roList = Array.from(roMap.values());
     const totalRO = roList.length;
-    const totalPairs = totalBoxes * 12; // 1 box = 12 pairs (business rule)
+    const totalPairs = totalBoxes * 12; // 1 box = 12 pairs (business rule) — TODO: compute from actual pairs_per_box when available
 
     return NextResponse.json({
       success: true,

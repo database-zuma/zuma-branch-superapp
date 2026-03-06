@@ -14,7 +14,7 @@ export async function GET(request: Request) {
 
     // store_name param kept for backward compat but no longer required.
     // ro_whs_readystock is WH-level (not store-specific).
-    void new URL(request.url);
+    void new URL(request.url); // consume request.url for future param use
     // ro_recommendations table was deleted (Mar 2026).
     // Now returns available WH stock from ro_whs_readystock VIEW.
     // Iris AI will generate recommendations in the future.

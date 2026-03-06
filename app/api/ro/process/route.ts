@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     const status = searchParams.get('status');
     const roId = searchParams.get('roId');
 
-    console.log('API received roId:', roId);
+    // Debug param: roId
 
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     if (roId) {
       conditions.push(`ro_id = $${paramIndex++}`);
       params.push(roId);
-      console.log('Filtering by ro_id:', roId);
+      // Filtering by ro_id
     }
 
     if (status && status !== 'ALL') {
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
       params
     );
 
-    console.log('Query returned rows:', data?.length || 0);
+    // Query returned
 
     // Group by ro_id to create RO items
     const roMap = new Map();

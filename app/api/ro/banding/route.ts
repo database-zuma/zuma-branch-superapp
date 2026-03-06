@@ -30,8 +30,11 @@ export async function POST(request: Request) {
     }
 
     if (action === 'BANDING') {
+      const client = await pool.connect();
       try {
-        await pool.query(
+        await client.query('BEGIN');
+
+        await client.query(
           `INSERT INTO ${SCHEMA}.ro_banding_notices (ro_id, banding_by, banding_at, status, message)
            VALUES ($1, $2, $3, $4, $5)`,
           [
@@ -42,22 +45,23 @@ export async function POST(request: Request) {
             'Warehouse confirmed correct quantities. SPG/B must re-check arrived stock. Possible miscount or fraud indication.'
           ]
         );
-      } catch (insertErr) {
-        console.error('Banding insert error:', insertErr);
-        const msg = insertErr instanceof Error ? insertErr.message : 'Insert failed';
+
+        await client.query(
+          `UPDATE ${SCHEMA}.ro_process SET status = $1, updated_at = $2 WHERE ro_id = $3`,
+          ['BANDING_SENT', new Date().toISOString(), ro_id]
+        );
+
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('Banding transaction error:', txErr);
+        const msg = txErr instanceof Error ? txErr.message : 'Transaction failed';
         return NextResponse.json(
           { success: false, error: msg },
           { status: 500 }
         );
-      }
-
-      try {
-        await pool.query(
-          `UPDATE ${SCHEMA}.ro_process SET status = $1, updated_at = $2 WHERE ro_id = $3`,
-          ['BANDING_SENT', new Date().toISOString(), ro_id]
-        );
-      } catch (updateErr) {
-        console.error('RO status update error:', updateErr);
+      } finally {
+        client.release();
       }
 
       return NextResponse.json({
@@ -92,42 +96,46 @@ export async function POST(request: Request) {
         }
       }
 
-      // Calculate and update ONCE per article
-      for (const [articleCode, data] of articleMap.entries()) {
-        const fisikBoxes = Math.ceil(data.totalFisik / data.pairsPerBox);
-        const totalOriginalBoxes = data.boxesDdd + data.boxesLjbb + data.boxesMbb + data.boxesUbb;
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
 
-        let dddBoxes = 0, ljbbBoxes = 0, mbbBoxes = 0, ubbBoxes = 0;
+        for (const [articleCode, data] of articleMap.entries()) {
+          const fisikBoxes = Math.ceil(data.totalFisik / data.pairsPerBox);
+          const totalOriginalBoxes = data.boxesDdd + data.boxesLjbb + data.boxesMbb + data.boxesUbb;
 
-        if (totalOriginalBoxes > 0) {
-          dddBoxes = Math.round(fisikBoxes * (data.boxesDdd / totalOriginalBoxes));
-          ljbbBoxes = Math.round(fisikBoxes * (data.boxesLjbb / totalOriginalBoxes));
-          mbbBoxes = Math.round(fisikBoxes * (data.boxesMbb / totalOriginalBoxes));
-          ubbBoxes = fisikBoxes - dddBoxes - ljbbBoxes - mbbBoxes;
-        }
+          let dddBoxes = 0, ljbbBoxes = 0, mbbBoxes = 0, ubbBoxes = 0;
 
-        try {
-          await pool.query(
+          if (totalOriginalBoxes > 0) {
+            dddBoxes = Math.round(fisikBoxes * (data.boxesDdd / totalOriginalBoxes));
+            ljbbBoxes = Math.round(fisikBoxes * (data.boxesLjbb / totalOriginalBoxes));
+            mbbBoxes = Math.round(fisikBoxes * (data.boxesMbb / totalOriginalBoxes));
+            ubbBoxes = fisikBoxes - dddBoxes - ljbbBoxes - mbbBoxes;
+          }
+
+          await client.query(
             `UPDATE ${SCHEMA}.ro_process
              SET status = $1, boxes_allocated_ddd = $2, boxes_allocated_ljbb = $3,
                  boxes_allocated_mbb = $4, boxes_allocated_ubb = $5, updated_at = $6
              WHERE ro_id = $7 AND article_code = $8`,
             ['COMPLETED', dddBoxes, ljbbBoxes, mbbBoxes, ubbBoxes, new Date().toISOString(), ro_id, articleCode]
           );
-        } catch (processUpdateErr) {
-          console.error('Process update error for article', articleCode, ':', processUpdateErr);
         }
-      }
 
-      try {
-        await pool.query(
+        await client.query(
           `UPDATE ${SCHEMA}.ro_receipt
            SET status = $1, confirmed_by = $2, confirmed_at = $3
            WHERE ro_id = $4`,
           ['CONFIRMED_DISCREPANCY', session.user.id, new Date().toISOString(), ro_id]
         );
-      } catch (receiptUpdateErr) {
-        console.error('Receipt update error:', receiptUpdateErr);
+
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('Confirmed transaction error:', txErr);
+        throw txErr;
+      } finally {
+        client.release();
       }
 
       return NextResponse.json({

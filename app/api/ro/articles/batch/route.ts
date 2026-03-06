@@ -38,47 +38,58 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const results = [];
-    const errors = [];
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    for (const update of updates) {
-      const { rows: data, rowCount } = await pool.query(
-        `UPDATE ${SCHEMA}.ro_process
-         SET boxes_allocated_ddd = $1, boxes_allocated_ljbb = $2,
-             boxes_requested = $1 + $2 + boxes_allocated_mbb + boxes_allocated_ubb,
-             updated_at = $3
-         WHERE ro_id = $4 AND article_code = $5
-         RETURNING *`,
-        [update.dddBoxes, update.ljbbBoxes, new Date().toISOString(), roId, update.articleCode]
-      );
+      const results = [];
+      const errors = [];
 
-      if (!data || (rowCount ?? 0) === 0) {
-        errors.push({ articleCode: update.articleCode, error: 'Article not found' });
-      } else {
-        results.push({ articleCode: update.articleCode, success: true });
+      for (const update of updates) {
+        const { rows: data, rowCount } = await client.query(
+          `UPDATE ${SCHEMA}.ro_process
+           SET boxes_allocated_ddd = $1, boxes_allocated_ljbb = $2,
+               boxes_requested = $1 + $2 + boxes_allocated_mbb + boxes_allocated_ubb,
+               updated_at = $3
+           WHERE ro_id = $4 AND article_code = $5
+           RETURNING *`,
+          [update.dddBoxes, update.ljbbBoxes, new Date().toISOString(), roId, update.articleCode]
+        );
+
+        if (!data || (rowCount ?? 0) === 0) {
+          errors.push({ articleCode: update.articleCode, error: 'Article not found' });
+        } else {
+          results.push({ articleCode: update.articleCode, success: true });
+        }
       }
-    }
 
-    if (errors.length > 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Some updates failed',
-          failedUpdates: errors,
-          successfulUpdates: results
-        },
-        { status: 207 }
-      );
-    }
+      await client.query('COMMIT');
 
+      if (errors.length > 0) {
     return NextResponse.json({
-      success: true,
-      data: {
-        roId,
-        updatedCount: results.length,
-        updates: results
+            success: false,
+            error: 'Some updates failed',
+            failedUpdates: errors,
+            successfulUpdates: results
+          },
+          { status: 207 }
+        );
       }
-    });
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          roId,
+          updatedCount: results.length,
+          updates: results
+        }
+      });
+    } catch (txError) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txError;
+    } finally {
+      client.release();
+    }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error in batch update:', error);
