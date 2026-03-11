@@ -162,7 +162,7 @@ export default function ROProcess() {
 		ljbbBoxes: 0,
 	});
 
-	const fetchROData = async (): Promise<ROItem[]> => {
+	const fetchROData = useCallback(async (): Promise<ROItem[]> => {
 		setIsLoadingData(true);
 		try {
 			const response = await fetch("/api/ro/process");
@@ -178,7 +178,7 @@ export default function ROProcess() {
 		} finally {
 			setIsLoadingData(false);
 		}
-	};
+	}, []);
 
 	useEffect(() => {
 		fetchROData();
