@@ -60,6 +60,10 @@ export async function GET(request: Request) {
           ljbbBoxes: 0,
           mbbBoxes: 0,
           ubbBoxes: 0,
+          dddBoxesActual: 0,
+          ljbbBoxesActual: 0,
+          mbbBoxesActual: 0,
+          ubbBoxesActual: 0,
           articles: [],
         });
       }
@@ -70,6 +74,10 @@ export async function GET(request: Request) {
       ro.ljbbBoxes += (row.boxes_allocated_ljbb as number) || 0;
       ro.mbbBoxes += (row.boxes_allocated_mbb as number) || 0;
       ro.ubbBoxes += (row.boxes_allocated_ubb as number) || 0;
+      ro.dddBoxesActual += (row.boxes_actual_ddd as number) || 0;
+      ro.ljbbBoxesActual += (row.boxes_actual_ljbb as number) || 0;
+      ro.mbbBoxesActual += (row.boxes_actual_mbb as number) || 0;
+      ro.ubbBoxesActual += (row.boxes_actual_ubb as number) || 0;
       ro.articles.push({
         kodeArtikel: row.article_code,
         namaArtikel: row.article_name || row.article_code,
@@ -78,6 +86,10 @@ export async function GET(request: Request) {
         ljbbBoxes: (row.boxes_allocated_ljbb as number) || 0,
         mbbBoxes: (row.boxes_allocated_mbb as number) || 0,
         ubbBoxes: (row.boxes_allocated_ubb as number) || 0,
+        dddBoxesActual: (row.boxes_actual_ddd as number) || 0,
+        ljbbBoxesActual: (row.boxes_actual_ljbb as number) || 0,
+        mbbBoxesActual: (row.boxes_actual_mbb as number) || 0,
+        ubbBoxesActual: (row.boxes_actual_ubb as number) || 0,
       });
     });
 

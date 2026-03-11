@@ -115,8 +115,8 @@ export async function POST(request: Request) {
 
           await client.query(
             `UPDATE ${SCHEMA}.ro_process
-             SET status = $1, boxes_allocated_ddd = $2, boxes_allocated_ljbb = $3,
-                 boxes_allocated_mbb = $4, boxes_allocated_ubb = $5, updated_at = $6
+             SET status = $1, boxes_actual_ddd = $2, boxes_actual_ljbb = $3,
+                 boxes_actual_mbb = $4, boxes_actual_ubb = $5, updated_at = $6
              WHERE ro_id = $7 AND article_code = $8`,
             ['COMPLETED', dddBoxes, ljbbBoxes, mbbBoxes, ubbBoxes, new Date().toISOString(), ro_id, articleCode]
           );

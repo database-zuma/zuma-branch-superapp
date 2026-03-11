@@ -101,6 +101,19 @@ export async function PATCH(request: Request) {
       }
     }
 
+    // When transitioning APPROVED → PICKING, copy plan values to actual as initial values
+    if (status === 'PICKING' && currentStatus === 'APPROVED') {
+      await pool.query(
+        `UPDATE ${SCHEMA}.ro_process
+         SET boxes_actual_ddd = boxes_allocated_ddd,
+             boxes_actual_ljbb = boxes_allocated_ljbb,
+             boxes_actual_mbb = boxes_allocated_mbb,
+             boxes_actual_ubb = boxes_allocated_ubb
+         WHERE ro_id = $1`,
+        [roId]
+      );
+    }
+
     const { rows: data } = await pool.query(
       `UPDATE ${SCHEMA}.ro_process SET status = $1, updated_at = $2 WHERE ro_id = $3 RETURNING *`,
       [status, new Date().toISOString(), roId]
