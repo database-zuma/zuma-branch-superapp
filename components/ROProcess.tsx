@@ -435,7 +435,6 @@ export default function ROProcess() {
 			) : (
 				<div className="space-y-3">
 					{filteredROList.map((ro) => {
-						const canDelete = !["READY_TO_SHIP", "IN_DELIVERY", "ARRIVED", "COMPLETED"].includes(ro.currentStatus);
 						return (
 							<div
 								key={ro.id}
@@ -451,18 +450,16 @@ export default function ROProcess() {
 										<p className="font-semibold text-gray-900">{ro.store}</p>
 									</div>
 									<div className="flex items-center gap-2">
-										{canDelete && (
-											<button
-												type="button"
-												onClick={(e) => {
-													e.stopPropagation();
-													handleDeleteRO(ro);
-												}}
-												className="p-1.5 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 transition-colors"
-											>
-												<Trash2 className="w-3.5 h-3.5" />
-											</button>
-										)}
+										<button
+											type="button"
+											onClick={(e) => {
+												e.stopPropagation();
+												handleDeleteRO(ro);
+											}}
+											className="p-1.5 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 transition-colors"
+										>
+											<Trash2 className="w-3.5 h-3.5" />
+										</button>
 										<span
 											className={cn(
 												"px-2 py-1 rounded-full text-xs font-medium",
