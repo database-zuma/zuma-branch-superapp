@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Download, RefreshCw, ChevronDown, ChevronUp, Save, ArrowRight, FileSpreadsheet } from 'lucide-react';
+import { Download, RefreshCw, ChevronDown, ChevronUp, FileSpreadsheet } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -29,10 +29,6 @@ interface SOPBRoItem {
   sopbNumberMbb: string | null;
   sopbNumberUbb: string | null;
   sopbTanggalDiminta: string | null;
-  dnpbNumberDdd: string | null;
-  dnpbNumberLjbb: string | null;
-  dnpbNumberMbb: string | null;
-  dnpbNumberUbb: string | null;
   entities: Record<string, EntitySummary>;
   skus: SKUItem[];
 }
@@ -47,7 +43,6 @@ const ENTITIES: { key: EntityKey; label: string }[] = [
 
 interface InputState {
   sopb: Record<EntityKey, string>;
-  dnpb: Record<EntityKey, string>;
   tanggalDiminta: string;
 }
 
@@ -57,7 +52,6 @@ export default function SOPBGenerator() {
   const [expandedRO, setExpandedRO] = useState<string | null>(null);
   const [inputs, setInputs] = useState<Record<string, InputState>>({});
   const [downloadingEntity, setDownloadingEntity] = useState<string | null>(null);
-  const [savingRO, setSavingRO] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -76,12 +70,6 @@ export default function SOPBGenerator() {
               mbb: ro.sopbNumberMbb || '',
               ubb: ro.sopbNumberUbb || '',
             },
-            dnpb: {
-              ddd: ro.dnpbNumberDdd || '',
-              ljbb: ro.dnpbNumberLjbb || '',
-              mbb: ro.dnpbNumberMbb || '',
-              ubb: ro.dnpbNumberUbb || '',
-            },
             tanggalDiminta: ro.sopbTanggalDiminta || '',
           };
         }
@@ -98,12 +86,12 @@ export default function SOPBGenerator() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const updateInput = (roId: string, field: 'sopb' | 'dnpb', entity: EntityKey, value: string) => {
+  const updateSopb = (roId: string, entity: EntityKey, value: string) => {
     setInputs(prev => ({
       ...prev,
       [roId]: {
         ...prev[roId],
-        [field]: { ...prev[roId][field], [entity]: value },
+        sopb: { ...prev[roId].sopb, [entity]: value },
       },
     }));
   };
@@ -158,61 +146,6 @@ export default function SOPBGenerator() {
       toast.error('Download failed');
     } finally {
       setDownloadingEntity(null);
-    }
-  };
-
-  const handleSaveDNPB = async (roId: string) => {
-    const inp = inputs[roId];
-    const ro = roData.find(r => r.roId === roId);
-    if (!ro) return;
-
-    // Validate: every entity with boxes must have DNPB number
-    for (const { key, label } of ENTITIES) {
-      if (ro.entities[key].totalBoxes > 0 && !inp.dnpb[key]) {
-        toast.warning(`DNPB Number untuk ${label} wajib diisi sebelum advance`);
-        return;
-      }
-    }
-
-    if (!confirm('Save DNPB numbers dan advance ke READY_TO_SHIP?')) return;
-
-    setSavingRO(roId);
-    try {
-      // Save DNPB numbers
-      const dnpbRes = await fetch('/api/ro/dnpb', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roId,
-          dnpbNumberDDD: inp.dnpb.ddd || undefined,
-          dnpbNumberLJBB: inp.dnpb.ljbb || undefined,
-          dnpbNumberMBB: inp.dnpb.mbb || undefined,
-          dnpbNumberUBB: inp.dnpb.ubb || undefined,
-        }),
-      });
-      const dnpbResult = await dnpbRes.json();
-      if (!dnpbResult.success) {
-        toast.error(`DNPB Error: ${dnpbResult.error}`);
-        return;
-      }
-
-      // Advance status to READY_TO_SHIP
-      const statusRes = await fetch('/api/ro/status', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roId, status: 'READY_TO_SHIP' }),
-      });
-      const statusResult = await statusRes.json();
-      if (statusResult.success) {
-        toast.success(`${roId} advanced to READY_TO_SHIP`);
-        fetchData(); // Refresh — this RO should disappear from DNPB_PROCESS list
-      } else {
-        toast.error(statusResult.error);
-      }
-    } catch {
-      toast.error('Failed to save DNPB');
-    } finally {
-      setSavingRO(null);
     }
   };
 
@@ -311,7 +244,7 @@ export default function SOPBGenerator() {
                           type="text"
                           placeholder={`SOPB/${label}/WHS/2026/III/001`}
                           value={inp.sopb[key]}
-                          onChange={(e) => updateInput(ro.roId, 'sopb', key, e.target.value)}
+                          onChange={(e) => updateSopb(ro.roId, key, e.target.value)}
                           className="w-full px-2.5 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none font-mono"
                         />
                       </div>
@@ -336,18 +269,6 @@ export default function SOPBGenerator() {
                           Download XLSX
                         </button>
                       </div>
-                    </div>
-
-                    {/* DNPB Number Input */}
-                    <div className="mt-2">
-                      <label className="text-xs text-gray-500 block mb-0.5">Nomor DNPB (dari Accurate)</label>
-                      <input
-                        type="text"
-                        placeholder={`DNPB/${label}/WHS/2026/III/001`}
-                        value={inp.dnpb[key]}
-                        onChange={(e) => updateInput(ro.roId, 'dnpb', key, e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none font-mono"
-                      />
                     </div>
                   </div>
                 );
@@ -401,30 +322,11 @@ export default function SOPBGenerator() {
               </div>
             )}
 
-            {/* Save DNPB & Advance */}
-            <div className="px-4 py-3 border-t bg-gray-50 flex items-center justify-between">
-              <p className="text-xs text-gray-400">
-                Isi semua DNPB number, lalu advance ke READY_TO_SHIP
+            <div className="px-4 py-3 border-t bg-gray-50">
+              <p className="text-xs text-gray-500">
+                Download XLSX per entity, lalu upload ke Accurate untuk mendapatkan nomor DNPB.
+                Input DNPB di halaman RO Process.
               </p>
-              <button
-                onClick={() => handleSaveDNPB(ro.roId)}
-                disabled={savingRO === ro.roId}
-                className={cn(
-                  "flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg font-medium transition-colors",
-                  "bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500"
-                )}
-              >
-                {savingRO === ro.roId ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <>
-                    <Save className="w-3.5 h-3.5" />
-                    Save DNPB
-                    <ArrowRight className="w-3.5 h-3.5" />
-                    READY_TO_SHIP
-                  </>
-                )}
-              </button>
             </div>
           </div>
         );
