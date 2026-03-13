@@ -20,8 +20,8 @@ interface SopbRow {
   dnpb_number_ljbb: string | null;
   dnpb_number_mbb: string | null;
   dnpb_number_ubb: string | null;
-  kode_besar: string;
-  nama_variant: string;
+  kode_besar: string | null;
+  nama_variant: string | null;
   count_by_assortment: number;
   qty_ddd: number;
   qty_ljbb: number;
@@ -61,8 +61,8 @@ export async function GET() {
       entities: Record<string, EntitySummary & { _articles: Set<string>; _boxMap: Map<string, number> }>;
       skus: Array<{
         articleCode: string;
-        kodeBesar: string;
-        namaVariant: string;
+        kodeBesar: string | null;
+        namaVariant: string | null;
         qtyDdd: number;
         qtyLjbb: number;
         qtyMbb: number;
@@ -94,8 +94,8 @@ export async function GET() {
 
       ro.skus.push({
         articleCode: row.article_code,
-        kodeBesar: row.kode_besar,
-        namaVariant: row.nama_variant,
+        kodeBesar: row.kode_besar || row.article_code,
+        namaVariant: row.nama_variant || row.article_name,
         qtyDdd: row.qty_ddd,
         qtyLjbb: row.qty_ljbb,
         qtyMbb: row.qty_mbb,

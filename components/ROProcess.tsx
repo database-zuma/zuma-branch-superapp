@@ -252,12 +252,13 @@ export default function ROProcess() {
 		setIsLoading(false);
 	}, [fetchROData]);
 
-	const handleDeleteRO = async () => {
-		if (!selectedRO) return;
+	const handleDeleteRO = async (roToDelete?: ROItem) => {
+		const target = roToDelete || selectedRO;
+		if (!target) return;
 
 		if (
 			!confirm(
-				`Are you sure you want to delete RO ${selectedRO.id}? This action cannot be undone.`,
+				`Are you sure you want to delete RO ${target.id}? This action cannot be undone.`,
 			)
 		) {
 			return;
@@ -266,7 +267,7 @@ export default function ROProcess() {
 		try {
 			setIsLoading(true);
 			const response = await fetch(
-				`/api/ro/process/delete?roId=${selectedRO.id}`,
+				`/api/ro/process/delete?roId=${target.id}`,
 				{
 					method: "DELETE",
 				},
@@ -275,9 +276,11 @@ export default function ROProcess() {
 			const result = await response.json();
 
 			if (response.ok && result.success) {
-				toast.success(`RO ${selectedRO.id} deleted successfully`);
-				setSelectedRO(null);
-				setViewArticles(false);
+				toast.success(`RO ${target.id} deleted successfully`);
+				if (selectedRO?.id === target.id) {
+					setSelectedRO(null);
+					setViewArticles(false);
+				}
 				fetchROData();
 			} else {
 				toast.error(result.error || "Failed to delete RO");
@@ -431,59 +434,79 @@ export default function ROProcess() {
 				</div>
 			) : (
 				<div className="space-y-3">
-					{filteredROList.map((ro) => (
-						<button
-							key={ro.id}
-							onClick={() => setSelectedRO(ro)}
-							className="w-full bg-white rounded-xl border border-gray-100 p-4 text-left hover:border-[#00D084] transition-colors"
-						>
-							<div className="flex items-start justify-between mb-2">
-								<div>
-									<p className="text-xs text-gray-500 font-mono">{ro.id}</p>
-									<p className="font-semibold text-gray-900">{ro.store}</p>
+					{filteredROList.map((ro) => {
+						const canDelete = !["READY_TO_SHIP", "IN_DELIVERY", "ARRIVED", "COMPLETED"].includes(ro.currentStatus);
+						return (
+							<div
+								key={ro.id}
+								role="button"
+								tabIndex={0}
+								className="relative w-full bg-white rounded-xl border border-gray-100 p-4 text-left hover:border-[#00D084] transition-colors cursor-pointer"
+								onClick={() => setSelectedRO(ro)}
+								onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setSelectedRO(ro); }}
+							>
+								<div className="flex items-start justify-between mb-2">
+									<div>
+										<p className="text-xs text-gray-500 font-mono">{ro.id}</p>
+										<p className="font-semibold text-gray-900">{ro.store}</p>
+									</div>
+									<div className="flex items-center gap-2">
+										{canDelete && (
+											<button
+												type="button"
+												onClick={(e) => {
+													e.stopPropagation();
+													handleDeleteRO(ro);
+												}}
+												className="p-1.5 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 transition-colors"
+											>
+												<Trash2 className="w-3.5 h-3.5" />
+											</button>
+										)}
+										<span
+											className={cn(
+												"px-2 py-1 rounded-full text-xs font-medium",
+												getStatusColor(ro.currentStatus),
+											)}
+										>
+											{ro.currentStatus}
+										</span>
+									</div>
 								</div>
-								<span
-									className={cn(
-										"px-2 py-1 rounded-full text-xs font-medium",
-										getStatusColor(ro.currentStatus),
+
+								<div className="flex items-center gap-4 text-sm text-gray-600">
+									<span>{ro.totalArticles} articles</span>
+									<span>•</span>
+									<span>{ro.totalBoxes} boxes</span>
+									<span>•</span>
+									<span>{ro.createdAt}</span>
+								</div>
+
+								<div className="mt-2 flex gap-2 text-xs flex-wrap">
+									{ro.dddBoxes > 0 && (
+										<span className="px-2 py-1 bg-blue-50 text-blue-700 rounded">
+											DDD: {ro.dddBoxes}
+										</span>
 									)}
-								>
-									{ro.currentStatus}
-								</span>
+									{ro.ljbbBoxes > 0 && (
+										<span className="px-2 py-1 bg-purple-50 text-purple-700 rounded">
+											LJBB: {ro.ljbbBoxes}
+										</span>
+									)}
+									{ro.mbbBoxes > 0 && (
+										<span className="px-2 py-1 bg-orange-50 text-orange-700 rounded">
+											MBB: {ro.mbbBoxes}
+										</span>
+									)}
+									{ro.ubbBoxes > 0 && (
+										<span className="px-2 py-1 bg-teal-50 text-teal-700 rounded">
+											UBB: {ro.ubbBoxes}
+										</span>
+									)}
+								</div>
 							</div>
-
-							<div className="flex items-center gap-4 text-sm text-gray-600">
-								<span>{ro.totalArticles} articles</span>
-								<span>•</span>
-								<span>{ro.totalBoxes} boxes</span>
-								<span>•</span>
-								<span>{ro.createdAt}</span>
-							</div>
-
-							<div className="mt-2 flex gap-2 text-xs flex-wrap">
-								{ro.dddBoxes > 0 && (
-									<span className="px-2 py-1 bg-blue-50 text-blue-700 rounded">
-										DDD: {ro.dddBoxes}
-									</span>
-								)}
-								{ro.ljbbBoxes > 0 && (
-									<span className="px-2 py-1 bg-purple-50 text-purple-700 rounded">
-										LJBB: {ro.ljbbBoxes}
-									</span>
-								)}
-								{ro.mbbBoxes > 0 && (
-									<span className="px-2 py-1 bg-orange-50 text-orange-700 rounded">
-										MBB: {ro.mbbBoxes}
-									</span>
-								)}
-								{ro.ubbBoxes > 0 && (
-									<span className="px-2 py-1 bg-teal-50 text-teal-700 rounded">
-										UBB: {ro.ubbBoxes}
-									</span>
-								)}
-							</div>
-						</button>
-					))}
+						);
+					})}
 				</div>
 			)}
 		</div>
@@ -547,7 +570,7 @@ export default function ROProcess() {
 						{selectedRO.dddBoxes > 0 && (
 							<span className="px-2 py-1 bg-white/20 rounded text-xs">
 								DDD:{" "}
-								{isPickingPhase
+								{showDualColumns
 									? `${selectedRO.dddBoxesActual}/${selectedRO.dddBoxes}`
 									: `${selectedRO.dddBoxes}`}{" "}
 								boxes
@@ -556,7 +579,7 @@ export default function ROProcess() {
 						{selectedRO.ljbbBoxes > 0 && (
 							<span className="px-2 py-1 bg-white/20 rounded text-xs">
 								LJBB:{" "}
-								{isPickingPhase
+								{showDualColumns
 									? `${selectedRO.ljbbBoxesActual}/${selectedRO.ljbbBoxes}`
 									: `${selectedRO.ljbbBoxes}`}{" "}
 								boxes
@@ -565,7 +588,7 @@ export default function ROProcess() {
 						{selectedRO.mbbBoxes > 0 && (
 							<span className="px-2 py-1 bg-white/20 rounded text-xs">
 								MBB:{" "}
-								{isPickingPhase
+								{showDualColumns
 									? `${selectedRO.mbbBoxesActual}/${selectedRO.mbbBoxes}`
 									: `${selectedRO.mbbBoxes}`}{" "}
 								boxes
@@ -574,7 +597,7 @@ export default function ROProcess() {
 						{selectedRO.ubbBoxes > 0 && (
 							<span className="px-2 py-1 bg-white/20 rounded text-xs">
 								UBB:{" "}
-								{isPickingPhase
+								{showDualColumns
 									? `${selectedRO.ubbBoxesActual}/${selectedRO.ubbBoxes}`
 									: `${selectedRO.ubbBoxes}`}{" "}
 								boxes
@@ -584,7 +607,7 @@ export default function ROProcess() {
 					{/* Delete RO Button */}
 					{isEditable && (
 						<button
-							onClick={handleDeleteRO}
+							onClick={() => handleDeleteRO()}
 							className="mt-3 w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-100 rounded-lg text-xs flex items-center justify-center gap-2 transition-colors"
 						>
 							<Trash2 className="w-3 h-3" /> Delete this RO
@@ -955,11 +978,24 @@ export default function ROProcess() {
 	const isPickingPhase = selectedRO
 		? ["PICKING", "PICK_VERIFIED"].includes(selectedRO.currentStatus)
 		: false;
+	const showDualColumns = selectedRO
+		? [
+				"PICKING",
+				"PICK_VERIFIED",
+				"DNPB_PROCESS",
+				"READY_TO_SHIP",
+				"IN_DELIVERY",
+				"ARRIVED",
+				"BANDING_SENT",
+				"COMPLETED",
+			].includes(selectedRO.currentStatus)
+		: false;
+	const isActualEditable = isPickingPhase;
 
 	const getArticleValues = useCallback(
 		(article: ROArticle) => {
 			const edited = editedArticles[article.kodeArtikel];
-			if (isPickingPhase) {
+			if (showDualColumns) {
 				return {
 					ddd: edited?.ddd ?? article.dddBoxesActual,
 					ljbb: edited?.ljbb ?? article.ljbbBoxesActual,
@@ -974,7 +1010,7 @@ export default function ROProcess() {
 				ubb: edited?.ubb ?? article.ubbBoxes,
 			};
 		},
-		[editedArticles, isPickingPhase],
+		[editedArticles, showDualColumns],
 	);
 
 	const updateArticleQty = useCallback(
@@ -990,7 +1026,7 @@ export default function ROProcess() {
 			if (!article) return;
 
 			const edited = editedArticles[article.kodeArtikel];
-			const current = isPickingPhase
+			const current = showDualColumns
 				? {
 						ddd: edited?.ddd ?? article.dddBoxesActual,
 						ljbb: edited?.ljbb ?? article.ljbbBoxesActual,
@@ -1013,7 +1049,7 @@ export default function ROProcess() {
 				},
 			}));
 		},
-		[selectedRO, editedArticles, isPickingPhase],
+		[selectedRO, editedArticles, showDualColumns],
 	);
 
 	const setArticleQty = useCallback(
@@ -1029,7 +1065,7 @@ export default function ROProcess() {
 			if (!article) return;
 
 			const edited = editedArticles[article.kodeArtikel];
-			const current = isPickingPhase
+			const current = showDualColumns
 				? {
 						ddd: edited?.ddd ?? article.dddBoxesActual,
 						ljbb: edited?.ljbb ?? article.ljbbBoxesActual,
@@ -1052,7 +1088,7 @@ export default function ROProcess() {
 				},
 			}));
 		},
-		[selectedRO, editedArticles, isPickingPhase],
+		[selectedRO, editedArticles, showDualColumns],
 	);
 
 	const saveArticleChanges = async () => {
@@ -1254,50 +1290,50 @@ export default function ROProcess() {
 								<tr className="text-left text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
 									<th className="py-3 px-3 font-medium">Article</th>
 									<th className="py-3 px-2 font-medium text-center">Box</th>
-									{isPickingPhase ? (
-										<>
-											<th className="py-3 px-1 font-medium text-center text-blue-400 text-[10px]">
-												DDD
-												<br />
-												Plan
-											</th>
-											<th className="py-3 px-1 font-medium text-center text-blue-600 text-[10px]">
-												DDD
-												<br />
-												Actual
-											</th>
-											<th className="py-3 px-1 font-medium text-center text-purple-400 text-[10px]">
-												LJBB
-												<br />
-												Plan
-											</th>
-											<th className="py-3 px-1 font-medium text-center text-purple-600 text-[10px]">
-												LJBB
-												<br />
-												Actual
-											</th>
-											<th className="py-3 px-1 font-medium text-center text-orange-400 text-[10px]">
-												MBB
-												<br />
-												Plan
-											</th>
-											<th className="py-3 px-1 font-medium text-center text-orange-600 text-[10px]">
-												MBB
-												<br />
-												Actual
-											</th>
-											<th className="py-3 px-1 font-medium text-center text-teal-400 text-[10px]">
-												UBB
-												<br />
-												Plan
-											</th>
-											<th className="py-3 px-1 font-medium text-center text-teal-600 text-[10px]">
-												UBB
-												<br />
-												Actual
-											</th>
-										</>
-									) : (
+								{showDualColumns ? (
+									<>
+										<th className="py-3 px-1 font-medium text-center text-blue-400 text-[10px]">
+											DDD
+											<br />
+											Plan
+										</th>
+										<th className="py-3 px-1 font-medium text-center text-blue-600 text-[10px]">
+											DDD
+											<br />
+											Actual
+										</th>
+										<th className="py-3 px-1 font-medium text-center text-purple-400 text-[10px]">
+											LJBB
+											<br />
+											Plan
+										</th>
+										<th className="py-3 px-1 font-medium text-center text-purple-600 text-[10px]">
+											LJBB
+											<br />
+											Actual
+										</th>
+										<th className="py-3 px-1 font-medium text-center text-orange-400 text-[10px]">
+											MBB
+											<br />
+											Plan
+										</th>
+										<th className="py-3 px-1 font-medium text-center text-orange-600 text-[10px]">
+											MBB
+											<br />
+											Actual
+										</th>
+										<th className="py-3 px-1 font-medium text-center text-teal-400 text-[10px]">
+											UBB
+											<br />
+											Plan
+										</th>
+										<th className="py-3 px-1 font-medium text-center text-teal-600 text-[10px]">
+											UBB
+											<br />
+											Actual
+										</th>
+									</>
+								) : (
 										<>
 											<th className="py-3 px-2 font-medium text-center text-blue-600">
 												DDD
@@ -1348,7 +1384,7 @@ export default function ROProcess() {
 											<td className="py-3 px-2 text-center font-medium text-gray-900">
 												{values.ddd + values.ljbb + values.mbb + values.ubb}
 											</td>
-											{isPickingPhase ? (
+											{showDualColumns ? (
 												<>
 													{/* DDD Plan */}
 													<td className="py-2 px-1 text-center">
@@ -1358,46 +1394,52 @@ export default function ROProcess() {
 													</td>
 													{/* DDD Actual */}
 													<td className="py-2 px-1 text-center">
-														<div className="flex items-center justify-center gap-0.5">
-															<button
-																onClick={() =>
-																	updateArticleQty(
-																		article.kodeArtikel,
-																		"ddd",
-																		-1,
-																	)
-																}
-																disabled={values.ddd <= 0}
-																className="w-5 h-6 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold"
-															>
-																-
-															</button>
-															<input
-																type="number"
-																min="0"
-																value={values.ddd}
-																onChange={(e) =>
-																	setArticleQty(
-																		article.kodeArtikel,
-																		"ddd",
-																		parseInt(e.target.value, 10) || 0,
-																	)
-																}
-																className="w-9 h-6 text-center text-blue-700 font-medium text-xs bg-white border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-															/>
-															<button
-																onClick={() =>
-																	updateArticleQty(
-																		article.kodeArtikel,
-																		"ddd",
-																		1,
-																	)
-																}
-																className="w-5 h-6 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs font-bold"
-															>
-																+
-															</button>
-														</div>
+														{isActualEditable ? (
+															<div className="flex items-center justify-center gap-0.5">
+																<button
+																	onClick={() =>
+																		updateArticleQty(
+																			article.kodeArtikel,
+																			"ddd",
+																			-1,
+																		)
+																	}
+																	disabled={values.ddd <= 0}
+																	className="w-5 h-6 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold"
+																>
+																	-
+																</button>
+																<input
+																	type="number"
+																	min="0"
+																	value={values.ddd}
+																	onChange={(e) =>
+																		setArticleQty(
+																			article.kodeArtikel,
+																			"ddd",
+																			parseInt(e.target.value, 10) || 0,
+																		)
+																	}
+																	className="w-9 h-6 text-center text-blue-700 font-medium text-xs bg-white border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+																/>
+																<button
+																	onClick={() =>
+																		updateArticleQty(
+																			article.kodeArtikel,
+																			"ddd",
+																			1,
+																		)
+																	}
+																	className="w-5 h-6 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs font-bold"
+																>
+																	+
+																</button>
+															</div>
+														) : (
+															<span className="w-8 h-6 text-center text-blue-600 font-medium text-xs bg-blue-50 border border-blue-200 rounded flex items-center justify-center mx-auto">
+																{article.dddBoxesActual}
+															</span>
+														)}
 													</td>
 													{/* LJBB Plan */}
 													<td className="py-2 px-1 text-center">
@@ -1407,46 +1449,52 @@ export default function ROProcess() {
 													</td>
 													{/* LJBB Actual */}
 													<td className="py-2 px-1 text-center">
-														<div className="flex items-center justify-center gap-0.5">
-															<button
-																onClick={() =>
-																	updateArticleQty(
-																		article.kodeArtikel,
-																		"ljbb",
-																		-1,
-																	)
-																}
-																disabled={values.ljbb <= 0}
-																className="w-5 h-6 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold"
-															>
-																-
-															</button>
-															<input
-																type="number"
-																min="0"
-																value={values.ljbb}
-																onChange={(e) =>
-																	setArticleQty(
-																		article.kodeArtikel,
-																		"ljbb",
-																		parseInt(e.target.value, 10) || 0,
-																	)
-																}
-																className="w-9 h-6 text-center text-purple-700 font-medium text-xs bg-white border border-purple-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-															/>
-															<button
-																onClick={() =>
-																	updateArticleQty(
-																		article.kodeArtikel,
-																		"ljbb",
-																		1,
-																	)
-																}
-																className="w-5 h-6 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 text-xs font-bold"
-															>
-																+
-															</button>
-														</div>
+														{isActualEditable ? (
+															<div className="flex items-center justify-center gap-0.5">
+																<button
+																	onClick={() =>
+																		updateArticleQty(
+																			article.kodeArtikel,
+																			"ljbb",
+																			-1,
+																		)
+																	}
+																	disabled={values.ljbb <= 0}
+																	className="w-5 h-6 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold"
+																>
+																	-
+																</button>
+																<input
+																	type="number"
+																	min="0"
+																	value={values.ljbb}
+																	onChange={(e) =>
+																		setArticleQty(
+																			article.kodeArtikel,
+																			"ljbb",
+																			parseInt(e.target.value, 10) || 0,
+																		)
+																	}
+																	className="w-9 h-6 text-center text-purple-700 font-medium text-xs bg-white border border-purple-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+																/>
+																<button
+																	onClick={() =>
+																		updateArticleQty(
+																			article.kodeArtikel,
+																			"ljbb",
+																			1,
+																		)
+																	}
+																	className="w-5 h-6 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 text-xs font-bold"
+																>
+																	+
+																</button>
+															</div>
+														) : (
+															<span className="w-8 h-6 text-center text-purple-600 font-medium text-xs bg-purple-50 border border-purple-200 rounded flex items-center justify-center mx-auto">
+																{article.ljbbBoxesActual}
+															</span>
+														)}
 													</td>
 													{/* MBB Plan */}
 													<td className="py-2 px-1 text-center">
@@ -1456,46 +1504,52 @@ export default function ROProcess() {
 													</td>
 													{/* MBB Actual */}
 													<td className="py-2 px-1 text-center">
-														<div className="flex items-center justify-center gap-0.5">
-															<button
-																onClick={() =>
-																	updateArticleQty(
-																		article.kodeArtikel,
-																		"mbb",
-																		-1,
-																	)
-																}
-																disabled={values.mbb <= 0}
-																className="w-5 h-6 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold"
-															>
-																-
-															</button>
-															<input
-																type="number"
-																min="0"
-																value={values.mbb}
-																onChange={(e) =>
-																	setArticleQty(
-																		article.kodeArtikel,
-																		"mbb",
-																		parseInt(e.target.value, 10) || 0,
-																	)
-																}
-																className="w-9 h-6 text-center text-orange-700 font-medium text-xs bg-white border border-orange-200 rounded focus:outline-none focus:ring-1 focus:ring-orange-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-															/>
-															<button
-																onClick={() =>
-																	updateArticleQty(
-																		article.kodeArtikel,
-																		"mbb",
-																		1,
-																	)
-																}
-																className="w-5 h-6 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 text-xs font-bold"
-															>
-																+
-															</button>
-														</div>
+														{isActualEditable ? (
+															<div className="flex items-center justify-center gap-0.5">
+																<button
+																	onClick={() =>
+																		updateArticleQty(
+																			article.kodeArtikel,
+																			"mbb",
+																			-1,
+																		)
+																	}
+																	disabled={values.mbb <= 0}
+																	className="w-5 h-6 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold"
+																>
+																	-
+																</button>
+																<input
+																	type="number"
+																	min="0"
+																	value={values.mbb}
+																	onChange={(e) =>
+																		setArticleQty(
+																			article.kodeArtikel,
+																			"mbb",
+																			parseInt(e.target.value, 10) || 0,
+																		)
+																	}
+																	className="w-9 h-6 text-center text-orange-700 font-medium text-xs bg-white border border-orange-200 rounded focus:outline-none focus:ring-1 focus:ring-orange-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+																/>
+																<button
+																	onClick={() =>
+																		updateArticleQty(
+																			article.kodeArtikel,
+																			"mbb",
+																			1,
+																		)
+																	}
+																	className="w-5 h-6 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 text-xs font-bold"
+																>
+																	+
+																</button>
+															</div>
+														) : (
+															<span className="w-8 h-6 text-center text-orange-600 font-medium text-xs bg-orange-50 border border-orange-200 rounded flex items-center justify-center mx-auto">
+																{article.mbbBoxesActual}
+															</span>
+														)}
 													</td>
 													{/* UBB Plan */}
 													<td className="py-2 px-1 text-center">
@@ -1505,48 +1559,54 @@ export default function ROProcess() {
 													</td>
 													{/* UBB Actual */}
 													<td className="py-2 px-1 text-center">
-														<div className="flex items-center justify-center gap-0.5">
-															<button
-																onClick={() =>
-																	updateArticleQty(
-																		article.kodeArtikel,
-																		"ubb",
-																		-1,
-																	)
-																}
-																disabled={values.ubb <= 0}
-																className="w-5 h-6 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold"
-															>
-																-
-															</button>
-															<input
-																type="number"
-																min="0"
-																value={values.ubb}
-																onChange={(e) =>
-																	setArticleQty(
-																		article.kodeArtikel,
-																		"ubb",
-																		parseInt(e.target.value, 10) || 0,
-																	)
-																}
-																className="w-9 h-6 text-center text-teal-700 font-medium text-xs bg-white border border-teal-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-															/>
-															<button
-																onClick={() =>
-																	updateArticleQty(
-																		article.kodeArtikel,
-																		"ubb",
-																		1,
-																	)
-																}
-																className="w-5 h-6 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 text-xs font-bold"
-															>
-																+
-															</button>
-														</div>
+														{isActualEditable ? (
+															<div className="flex items-center justify-center gap-0.5">
+																<button
+																	onClick={() =>
+																		updateArticleQty(
+																			article.kodeArtikel,
+																			"ubb",
+																			-1,
+																		)
+																	}
+																	disabled={values.ubb <= 0}
+																	className="w-5 h-6 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold"
+																>
+																	-
+																</button>
+																<input
+																	type="number"
+																	min="0"
+																	value={values.ubb}
+																	onChange={(e) =>
+																		setArticleQty(
+																			article.kodeArtikel,
+																			"ubb",
+																			parseInt(e.target.value, 10) || 0,
+																		)
+																	}
+																	className="w-9 h-6 text-center text-teal-700 font-medium text-xs bg-white border border-teal-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+																/>
+																<button
+																	onClick={() =>
+																		updateArticleQty(
+																			article.kodeArtikel,
+																			"ubb",
+																			1,
+																		)
+																	}
+																	className="w-5 h-6 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 text-xs font-bold"
+																>
+																	+
+																</button>
+															</div>
+														) : (
+															<span className="w-8 h-6 text-center text-teal-600 font-medium text-xs bg-teal-50 border border-teal-200 rounded flex items-center justify-center mx-auto">
+																{article.ubbBoxesActual}
+															</span>
+														)}
 													</td>
-													{/* No delete during picking */}
+													{/* No actions during dual-column view */}
 													<td className="py-2 px-1"></td>
 												</>
 											) : (
@@ -1711,7 +1771,7 @@ export default function ROProcess() {
 											<td className="py-3 px-2 text-center text-gray-900">
 												{totals.ddd + totals.ljbb + totals.mbb + totals.ubb}
 											</td>
-											{isPickingPhase ? (
+											{showDualColumns ? (
 												<>
 													<td className="py-3 px-1 text-center text-blue-400">
 														{totals.dddPlan}

@@ -124,8 +124,8 @@ export async function POST(request: Request) {
     for (const sku of rows) {
       const itemData = new Array(ITEM_LEVEL.length).fill('');
       itemData[0] = 'ITEM';
-      itemData[1] = sku.kode_besar;
-      itemData[2] = sku.nama_variant;
+      itemData[1] = sku.kode_besar || sku.article_code;
+      itemData[2] = sku.nama_variant || sku.article_code;
       itemData[3] = sku.qty as number;
       itemData[4] = ''; // Satuan
       itemData[5] = formattedDate;
